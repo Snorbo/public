@@ -45,6 +45,6 @@ echo -e "\n\033[34m重启Nginx服务...\033[0m"
 sudo systemctl restart nginx
 
 echo -e "\n\033[32m操作成功完成！验证步骤：\033[0m"
-echo "1. 检查运行状态：systemctl status nginx"
-echo "2. 验证配置版本：sudo nginx -V"
-echo "3. 查看最近备份：ls -lht $BACKUP_DIR | head -n 5"
+echo "查看最近备份：ls -lht $BACKUP_DIR | head -n 5"
+echo "检查运行状态..."
+systemctl status nginx
