@@ -33,17 +33,13 @@ sudo systemctl enable cloudreve
 sudo systemctl start cloudreve
 echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
 cd /opt/cloudreve/
-sudo systemctl stop cloudreve 2>/dev/null || true
-[ -f cloudreve.db ] && rm -f cloudreve.db
+sudo systemctl stop cloudreve
+rm cloudreve.db
 sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
 
 ./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'
-username=$(echo "$output" | grep -oP 'Admin user name:\s*\K\S+')
-password=$(echo "$output" | grep -oP 'Admin password:\s*\K\S+')
-echo -e "\n\033[32m====== 初始管理员凭据 ======\033[0m"
-echo -e "账号: \033[36m$username\033[0m"
-echo -e "密码: \033[31m$password\033[0m"
-echo -e "\033[33m请立即登录修改密码！\033[0m"
-echo -e "\n\033[32m正在启动后台服务...\033[0m"
-sudo systemctl start cloudreve
-
+echo -e "033[32m====== 初始管理员凭据 ======\033[0m"
+echo -e "\033[33m请记录账号密码，本地未保存\033[0m"
+echo -e "\033[32m完成配置，请自行启动长期服务\033[0m"
+echo -e "\033[32m指令：\033[0m"
+echo -e "\033[32msudo systemctl start cloudreve\033[0m"
