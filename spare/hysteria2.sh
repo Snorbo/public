@@ -28,8 +28,8 @@ quic:
   maxIdleTimeout: 30s
   maxDatagramFrameSize: 1492
 bandwidth:
-  up: 1 gbps
-  down: 1 gbps
+  up: 500 mbps
+  down: 500mbps
 
 ignoreClientBandwidth: false
 speedTest: false
