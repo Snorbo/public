@@ -18,7 +18,7 @@ cd "${TMP_DIR}"
 
 echo -e "\n\033[34m[3/7] 解压安装文件...\033[0m"
 sudo mkdir -p "${INSTALL_DIR}"
-sudo tar -zxf "cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz" -C "${INSTALL_DIR}" --strip-components 1
+sudo tar -zxf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudreve
 
 echo -e "\n\033[34m[4/7] 创建数据目录...\033[0m"
 sudo mkdir -p "${INSTALL_DIR}/"{conf,uploads,avatar}
