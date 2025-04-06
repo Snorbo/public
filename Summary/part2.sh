@@ -13,3 +13,5 @@ systemctl start nginx
 wget https://raw.githubusercontent.com/Snorbo/public/refs/heads/main/nginx_systemd.sh
 chmod +x nginx_systemd.sh
 sudo ./nginx_systemd.sh
+cd
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
