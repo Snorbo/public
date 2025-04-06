@@ -32,8 +32,25 @@ check_url() {
 # 检查端口占用
 check_port() {
   if ss -tulpn | grep -q ":$1 "; then
-    echo -e "${COLOR_RED}错误：端口 $1 已被占用，请先停止相关服务${COLOR_RESET}"
-    exit 1
+    echo -e "${COLOR_BLUE}关闭 systemd-resolved 的 DNS 监听...${COLOR_RESET}"
+    # 备份原始配置
+    echo -e "${COLOR_BLUE}[1/4] 备份配置文件...${COLOR_RESET}"
+    sudo cp -v "$RESOLVED_CONF" "$BACKUP_CONF"
+    # 修改配置（确保无论是否存在都设置为 no）
+    echo -e "${COLOR_BLUE}[2/4] 修改配置...${COLOR_RESET}"
+    sudo sed -i '/^DNSStubListener=/d' "$RESOLVED_CONF"  # 删除现有配置
+    echo -e "[Resolve]\nDNSStubListener=no" | sudo tee -a "$RESOLVED_CONF" >/dev/null
+    # 重启服务（但不完全禁用，避免影响其他网络功能）
+    echo -e "${COLOR_BLUE}[3/4] 重新加载配置...${COLOR_RESET}"
+    sudo systemctl restart systemd-resolved
+    # 验证 53 端口是否释放
+    echo -e "${COLOR_BLUE}[4/4] 检查端口占用...${COLOR_RESET}"
+    if ss -tulnp | grep -q ":53"; then
+      echo -e "${COLOR_RED}错误：53 端口仍被占用，请手动检查！${COLOR_RESET}"
+      exit 1
+    else
+      echo -e "${COLOR_GREEN}成功：53 端口已释放，可安装 AdGuard Home${COLOR_RESET}"
+    fi
   fi
 }
 
