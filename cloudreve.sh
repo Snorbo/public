@@ -35,11 +35,9 @@ echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
 cd /opt/cloudreve/ || { echo -e "\033[31m目录不存在\033[0m"; exit 1; }
 sudo systemctl stop cloudreve 2>/dev/null || true
 [ -f cloudreve.db ] && rm -f cloudreve.db
-if grep -q '^Listen\s*=\s*:5212' conf.ini; then
-    sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
-fi
-echo -e "\033[33m正在初始化，请等待...\033[0m"
-output=$(./cloudreve 2>&1 | tee /dev/tty)
+sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
+
+./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'
 username=$(echo "$output" | grep -oP 'Admin user name:\s*\K\S+')
 password=$(echo "$output" | grep -oP 'Admin password:\s*\K\S+')
 echo -e "\n\033[32m====== 初始管理员凭据 ======\033[0m"
