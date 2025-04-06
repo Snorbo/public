@@ -37,8 +37,8 @@ acme.sh --install-cert -d "${DOMAIN}" \
 
 echo -e "\n\033[34m设置证书权限...\033[0m"
 sudo chmod 755 /usr/local/nginx/certs
-sudo chmod 600 "${CERT_DIR}/cert.key"
-sudo chmod 644 "${CERT_DIR}/fullchain.cer"
+sudo chmod 0604 "${CERT_DIR}/cert.key"
+sudo chmod 0644 "${CERT_DIR}/fullchain.cer"
 
 echo -e "\n\033[34m重新加载服务配置...\033[0m"
 sudo systemctl daemon-reload
