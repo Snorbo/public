@@ -14,11 +14,7 @@ sudo apt-get install -y wget tar >/dev/null
 
 echo -e "\n\033[34m[2/7] 下载 Cloudreve ${CLOUDREVE_VERSION}...\033[0m"
 cd "${TMP_DIR}"
-if [ -f "cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz" ]; then
-    echo -e "\033[33m发现已存在安装包，跳过下载\033[0m"
-else
     wget -q --show-progress "${DOWNLOAD_URL}"
-fi
 
 echo -e "\n\033[34m[3/7] 解压安装文件...\033[0m"
 sudo mkdir -p "${INSTALL_DIR}"
