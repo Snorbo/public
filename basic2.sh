@@ -15,7 +15,7 @@ ExecStart=/bin/sh -c 'echo "none" > /sys/block/vda/queue/scheduler'
 WantedBy=multi-user.target
 EOF
 
-sudo chmod 644 /etc/systemd/system/set-io-scheduler.service
+sudo chmod 0644 /etc/systemd/system/set-io-scheduler.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now set-io-scheduler
 
