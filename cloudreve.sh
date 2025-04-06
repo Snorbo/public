@@ -32,11 +32,10 @@ EOF
 echo -e "\n\033[32m启动长期服务...\033[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable cloudreve
-echo -e "\033[33m正在生成初始凭据...\033[0m"
-/opt/cloudreve/./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'
-echo -e "\n\033[32m====== 初始管理员凭据 ======\033[0m"
-echo -e "\033[33m请立即记录账号密码（本地未保存）\033[0m"
-echo -e "\033[33m请手动重启\033[0m"
+echo -e "\033[33m请手动完成剩下部分\033[0m"
+echo -e "/opt/cloudreve/./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'"
+echo -e "sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini"
 echo -e "sudo systemctl start cloudreve"
+
 
 
