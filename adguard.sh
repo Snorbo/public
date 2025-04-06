@@ -89,7 +89,7 @@ sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}"
 sudo chmod +x "${INSTALL_DIR}/AdGuardHome"
 
 echo -e "\n${COLOR_BLUE}[9/10] 创建系统服务...${COLOR_RESET}"
-sudo tee "${SERVICE_FILE}" > /dev/null <<EOF
+sudo tee "${SERVICE_FILE}" > /dev/null <<'EOF'
 [Unit]
 Description=AdGuard Home
 After=network.target
@@ -112,6 +112,7 @@ EOF
 echo -e "\n${COLOR_BLUE}[10/10] 启动服务...${COLOR_RESET}"
 sudo systemctl daemon-reload
 sudo systemctl enable --now AdGuardHome > /dev/null
+sudo systemctl start AdGuardHome
 
 # 验证安装
 echo -e "\n${COLOR_BLUE}验证服务状态...${COLOR_RESET}"
