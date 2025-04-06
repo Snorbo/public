@@ -34,7 +34,7 @@ echo -e "\n\033[32m启动长期服务...\033[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable cloudreve
 
+echo -e "/opt/cloudreve/./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'"
 echo -e "\033[33m请手动完成剩下部分\033[0m"
 echo "sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini"
 echo "sudo systemctl start cloudreve"
-echo -e "/opt/cloudreve/./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'"
