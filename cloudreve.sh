@@ -8,10 +8,12 @@ wget https://github.com/cloudreve/Cloudreve/releases/download/${CLOUDREVE_VERSIO
 
 echo -e "\n\033[32m解压并安装到/opt/cloudreve...\033[0m"
 sudo mkdir -p /opt/cloudreve
-sudo tar -zxvf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudreve
+sudo tar -zxf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudreve
 
 echo -e "\n\033[32m创建配置和数据目录...\033[0m"
 sudo mkdir -p /opt/cloudreve/{conf,uploads,avatar}
+
+echo -e "\n\033[32m创建系统服务...\033[0m"
 sudo tee /etc/systemd/system/cloudreve.service <<'EOF'
 [Unit]
 Description=Cloudreve
@@ -27,20 +29,21 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-echo -e "\n\033[32m重启相关服务...\033[0m"
-sudo systemctl daemon-reload
-sudo systemctl enable cloudreve
-sudo systemctl start cloudreve
-sleep 3
-echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
-cd /opt/cloudreve/
-sudo systemctl stop cloudreve
-rm cloudreve.db
-sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
 
-./cloudreve 2>&1 | grep -E 'Admin user name:|Admin password:'
-echo -e "033[32m====== 初始管理员凭据 ======\033[0m"
-echo -e "\033[33m请记录账号密码，本地未保存\033[0m"
-echo -e "\033[32m完成配置，请自行启动长期服务\033[0m"
-echo -e "\033[32m指令：\033[0m"
-echo -e "\033[32msudo systemctl start cloudreve\033[0m"
+echo -e "\033[33m正在生成初始凭据...\033[0m"
+cd /opt/cloudreve/
+credentials=$(sudo ./cloudreve --reset-password 2>&1)
+echo "$credentials" | grep -E 'Admin user name:|Admin password:'
+
+echo -e "\n\033[32m====== 初始管理员凭据 ======\033[0m"
+echo -e "\033[33m请立即记录账号密码（本地未保存）\033[0m"
+
+echo -e "\n\033[32m启动长期服务...\033[0m"
+sudo systemctl daemon-reload
+sudo systemctl enable --now cloudreve
+
+echo -e "\n\033[32m安装完成！服务已设置为开机自启\033[0m"
+echo -e "管理命令："
+echo -e "  sudo systemctl status cloudreve"
+echo -e "访问地址：\033[34mhttp://服务器IP:1552\033[0m"
+
