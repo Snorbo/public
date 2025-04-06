@@ -32,7 +32,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable cloudreve
 sudo systemctl start cloudreve
 echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
-cd /opt/cloudreve/ || { echo -e "\033[31m目录不存在\033[0m"; exit 1; }
+cd /opt/cloudreve/
 sudo systemctl stop cloudreve 2>/dev/null || true
 [ -f cloudreve.db ] && rm -f cloudreve.db
 sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
