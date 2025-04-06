@@ -1,61 +1,51 @@
 #!/bin/bash
 set -e
+cd /tmp
 
-# 配置参数
+echo -e "\n\033[32m开始下载cloudreve...\033[0m"
 CLOUDREVE_VERSION="3.8.3"
-INSTALL_DIR="/opt/cloudreve"
-SERVICE_FILE="/etc/systemd/system/cloudreve.service"
-DOWNLOAD_URL="https://github.com/cloudreve/Cloudreve/releases/download/${CLOUDREVE_VERSION}/cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz"
-TMP_DIR="/tmp"
+wget https://github.com/cloudreve/Cloudreve/releases/download/${CLOUDREVE_VERSION}/cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz
 
-echo -e "\033[34m[1/7] 正在准备安装环境...\033[0m"
-sudo apt-get update >/dev/null
-sudo apt-get install -y wget tar >/dev/null
-cd "${TMP_DIR}"
-echo -e "\n\033[34m[2/7] 下载 Cloudreve ${CLOUDREVE_VERSION}...\033[0m"
-wget "${DOWNLOAD_URL}"
+echo -e "\n\033[32m解压并安装到/opt/cloudreve...\033[0m"
+sudo mkdir -p /opt/cloudreve
+sudo tar -zxvf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudreve
 
-echo -e "\n\033[34m[3/7] 解压安装文件...\033[0m"
-sudo mkdir -p "${INSTALL_DIR}"
-sudo tar -zxf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudreve
-
-echo -e "\n\033[34m[4/7] 创建数据目录...\033[0m"
-sudo mkdir -p "${INSTALL_DIR}/"{conf,uploads,avatar}
-
-echo -e "\n\033[34m[5/7] 配置系统服务...\033[0m"
-sudo tee "${SERVICE_FILE}" >/dev/null <<EOF
+echo -e "\n\033[32m创建配置和数据目录...\033[0m"
+sudo mkdir -p /opt/cloudreve/{conf,uploads,avatar}
+sudo tee /etc/systemd/system/cloudreve.service <<'EOF'
 [Unit]
 Description=Cloudreve
 After=network.target
 
 [Service]
 User=root
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=${INSTALL_DIR}/cloudreve
+WorkingDirectory=/opt/cloudreve
+ExecStart=/opt/cloudreve/cloudreve
 Restart=always
-RestartSec=3s
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-echo -e "\n\033[34m[6/7] 应用服务配置...\033[0m"
+echo -e "\n\033[32m重启相关服务...\033[0m"
 sudo systemctl daemon-reload
-sudo systemctl start cloudreve
 sudo systemctl enable cloudreve
-
-echo -e "\n\033[34m[7/7] 启动服务...\033[0m"
-if ! sudo systemctl start cloudreve; then
-    echo -e "\033[31m服务启动失败，请检查以下日志：\033[0m"
-    journalctl -u cloudreve -n 10 --no-pager
-    exit 1
+sudo systemctl start cloudreve
+echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
+cd /opt/cloudreve/ || { echo -e "\033[31m目录不存在\033[0m"; exit 1; }
+sudo systemctl stop cloudreve 2>/dev/null || true
+[ -f cloudreve.db ] && rm -f cloudreve.db
+if grep -q '^Listen\s*=\s*:5212' conf.ini; then
+    sed -i '/^\[System\]$/,/^\[/ s/^\(Listen\s*=\s*\):5212$/\1:1552/' conf.ini
 fi
+echo -e "\033[33m正在初始化，请等待...\033[0m"
+output=$(./cloudreve 2>&1 | tee /dev/tty)
+username=$(echo "$output" | grep -oP 'Admin user name:\s*\K\S+')
+password=$(echo "$output" | grep -oP 'Admin password:\s*\K\S+')
+echo -e "\n\033[32m====== 初始管理员凭据 ======\033[0m"
+echo -e "账号: \033[36m$username\033[0m"
+echo -e "密码: \033[31m$password\033[0m"
+echo -e "\033[33m请立即登录修改密码！\033[0m"
+echo -e "\n\033[32m正在启动后台服务...\033[0m"
+sudo systemctl start cloudreve
 
-echo -e "\n\033[32m安装成功！请执行以下操作：\033[0m"
-echo "1. 查看初始密码：sudo journalctl -u cloudreve | grep '初始管理员密码'"
-echo "2. 访问面板: http://your_server_ip:5212"
-echo "3. 防火墙配置：sudo ufw allow 5212/tcp"
-echo -e "\n管理命令："
-echo "启动服务：sudo systemctl start cloudreve"
-echo "查看状态：sudo systemctl status cloudreve"
-echo "查看日志：journalctl -u cloudreve -f"
