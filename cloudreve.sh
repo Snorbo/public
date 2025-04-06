@@ -31,6 +31,7 @@ echo -e "\n\033[32m重启相关服务...\033[0m"
 sudo systemctl daemon-reload
 sudo systemctl enable cloudreve
 sudo systemctl start cloudreve
+sleep 3
 echo -e "\n\033[32m正在重置Cloudreve并提取初始凭据...\033[0m"
 cd /opt/cloudreve/
 sudo systemctl stop cloudreve
