@@ -11,10 +11,9 @@ TMP_DIR="/tmp"
 echo -e "\033[34m[1/7] 正在准备安装环境...\033[0m"
 sudo apt-get update >/dev/null
 sudo apt-get install -y wget tar >/dev/null
-
-echo -e "\n\033[34m[2/7] 下载 Cloudreve ${CLOUDREVE_VERSION}...\033[0m"
 cd "${TMP_DIR}"
-    wget -q --show-progress "${DOWNLOAD_URL}"
+echo -e "\n\033[34m[2/7] 下载 Cloudreve ${CLOUDREVE_VERSION}...\033[0m"
+wget "${DOWNLOAD_URL}"
 
 echo -e "\n\033[34m[3/7] 解压安装文件...\033[0m"
 sudo mkdir -p "${INSTALL_DIR}"
@@ -22,25 +21,19 @@ sudo tar -zxf cloudreve_${CLOUDREVE_VERSION}_linux_amd64.tar.gz -C /opt/cloudrev
 
 echo -e "\n\033[34m[4/7] 创建数据目录...\033[0m"
 sudo mkdir -p "${INSTALL_DIR}/"{conf,uploads,avatar}
-sudo chmod -R 750 "${INSTALL_DIR}"
 
 echo -e "\n\033[34m[5/7] 配置系统服务...\033[0m"
 sudo tee "${SERVICE_FILE}" >/dev/null <<EOF
 [Unit]
-Description=Cloudreve Service
+Description=Cloudreve
 After=network.target
-Wants=network.target
 
 [Service]
 User=root
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${INSTALL_DIR}/cloudreve
-Restart=on-abnormal
-RestartSec=5s
-KillMode=mixed
-
-StandardOutput=journal
-StandardError=journal
+Restart=always
+RestartSec=3s
 
 [Install]
 WantedBy=multi-user.target
@@ -48,7 +41,8 @@ EOF
 
 echo -e "\n\033[34m[6/7] 应用服务配置...\033[0m"
 sudo systemctl daemon-reload
-sudo systemctl enable cloudreve >/dev/null
+sudo systemctl start cloudreve
+sudo systemctl enable cloudreve
 
 echo -e "\n\033[34m[7/7] 启动服务...\033[0m"
 if ! sudo systemctl start cloudreve; then
