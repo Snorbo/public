@@ -8,34 +8,27 @@ sudo tee /etc/hysteria/config.yaml <<'EOF'
 listen: 127.0.0.1:1553
 
 tls:
-  cert: /usr/local/nginx/certs/cloud.ffe.quest/fullchain.cer
-  key: /usr/local/nginx/certs/cloud.ffe.quest/cert.key
+  cert: /usr/local/nginx/certs/c.ffe.quest/fullchain.cer
+  key: /usr/local/nginx/certs/c.ffe.quest/cert.key
 
 obfs:
   type: salamander 
   salamander:
-    password: UGizy$B7.
+    password: UGizy$B7
 auth:
   type: password
   password: 1sM+^OruL
-  
-quic:
-  initStreamReceiveWindow: 8388608
-  maxStreamReceiveWindow: 8388608
-  initConnReceiveWindow: 25165824
-  maxConnReceiveWindow: 25165824
-  maxIdleTimeout: 30s
 
 bandwidth:
-  up: 900 mbps
-  down: 900 mbps
+  up: 888 mbps
+  down: 888 mbps
 
-udpIdleTimeout: 30s
+udpIdleTimeout: 20s
 
 masquerade:
   type: proxy
   proxy:
-    url: https://cloud.ffe.quest/
+    url: https://s.ffe.quest/
     rewriteHost: true
     insecure: false
 EOF
