@@ -20,3 +20,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now set-io-scheduler
 
 echo -e "\n已完成配置操作..."
+reboot
+echo -e "\n开始重启"
+
