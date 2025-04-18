@@ -20,7 +20,7 @@ http {
     keepalive_timeout  65;
     server {
         listen       80;
-        server_name  private.ffe.quest;
+        server_name  s.ffe.quest;
         location / {
             root   html;
             index  index.html index.htm;
