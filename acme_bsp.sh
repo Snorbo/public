@@ -18,7 +18,7 @@ echo 'export PATH="$HOME/.acme.sh:$PATH"' | sudo tee /etc/profile.d/acme.sh >/de
 source /etc/profile
 
 echo -e "\n\033[34m申请SSL证书（使用DNS验证）...\033[0m"
-acme.sh --issue -d "${DOMAIN}" --nginx "${NGINX_CONF}" --debug 2 || {
+acme.sh --issue -d "${DOMAIN}" --nginx "${NGINX_CONF}" --force --debug 2 || {
     echo -e "\033[31m证书申请失败，请检查：\033[0m"
     echo "1. 域名解析是否正确"
     echo "2. 80端口是否开放"
