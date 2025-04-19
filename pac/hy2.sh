@@ -8,16 +8,16 @@ sudo tee /etc/hysteria/config.yaml <<'EOF'
 listen: 127.0.0.1:1553
 
 tls:
-  cert: /usr/local/nginx/certs/c.ffe.quest/fullchain.cer
-  key: /usr/local/nginx/certs/c.ffe.quest/cert.key
+  cert: /usr/local/nginx/certs/t1.ffe.quest/fullchain.cer
+  key: /usr/local/nginx/certs/t1.ffe.quest/cert.key
 
 obfs:
   type: salamander 
   salamander:
-    password: UGizy$B7
+    password: OlFtXgYa1r74J2fP
 auth:
   type: password
-  password: 1sM+^OruL
+  password: TySMqw5t9akE42BV
 
 bandwidth:
   up: 888 mbps
@@ -28,7 +28,7 @@ udpIdleTimeout: 20s
 masquerade:
   type: proxy
   proxy:
-    url: https://t2.ffe.quest/
+    url: https://ffe.one/
     rewriteHost: true
     insecure: false
 EOF
