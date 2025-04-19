@@ -12,7 +12,7 @@ sudo ufw allow 53
 sudo ufw allow 80
 sudo ufw allow 323
 sudo ufw allow 443
-sudo ufw allow 1600
+sudo ufw allow 1556
 sudo ufw allow 1555
 sudo ufw enable
 echo -e "\n\033[32配置成功，请注意：warp端口未开放\033[0m"
