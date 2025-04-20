@@ -20,15 +20,15 @@ auth:
   password: TySMqw5t9akE42BV
 
 bandwidth:
-  up: 888 mbps
-  down: 888 mbps
+  up: 200 mbps
+  down: 200 mbps
 
 udpIdleTimeout: 20s
 
 masquerade:
   type: proxy
   proxy:
-    url: https://ffe.one/
+    url: https://t1.ffe.quest/
     rewriteHost: true
     insecure: false
 EOF
