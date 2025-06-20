@@ -5,7 +5,7 @@ bash <(curl -fsSL https://get.hy2.sh/)
 echo -e "\033[34m[2/4] 配置hysteria2...\033[0m"
 rm /etc/hysteria/config.yaml 
 sudo tee /etc/hysteria/config.yaml <<'EOF'
-listen: 127.0.0.1:1553
+listen: :1553
 
 tls:
   cert: /usr/local/nginx/certs/cloud.source.ffe.quest/fullchain.cer
