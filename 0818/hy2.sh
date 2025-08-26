@@ -8,8 +8,8 @@ sudo tee /etc/hysteria/config.yaml <<'EOF'
 listen: :1553
 
 tls:
-  cert: /usr/local/nginx/certs/dns.knauf.quest/fullchain.cer
-  key: /usr/local/nginx/certs/dns.knauf.quest/cert.key
+  cert: /usr/local/nginx/certs/doh.knauf.quest/fullchain.cer
+  key: /usr/local/nginx/certs/doh.knauf.quest/cert.key
 
 obfs:
   type: salamander 
@@ -26,7 +26,7 @@ bandwidth:
 masquerade:
   type: proxy
   proxy:
-    url: https://dns.knauf.quest/
+    url: https://doh.knauf.quest/
     rewriteHost: true
     insecure: false
 EOF
