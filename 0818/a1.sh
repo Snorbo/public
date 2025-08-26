@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DOMAIN="dns.knauf.quest"
+DOMAIN="doh.knauf.quest"
 EMAIL="email.snorbo@gmail.com"
 NGINX_CONF="/usr/local/nginx/conf/nginx.conf"
 CERT_DIR="/usr/local/nginx/certs/${DOMAIN}"
