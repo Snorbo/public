@@ -16,7 +16,7 @@ http {
     keepalive_timeout  65;
     server {
         listen       80;
-        server_name  cloud.source.ffe.quest;
+        server_name  cloud.source.maya.locker;
         location / {
             root   html;
             index  index.html index.htm;
