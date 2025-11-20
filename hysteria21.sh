@@ -8,27 +8,28 @@ sudo tee /etc/hysteria/config.yaml <<'EOF'
 listen: :1553
 
 tls:
-  cert: /usr/local/nginx/certs/cloud.source.ffe.quest/fullchain.cer
-  key: /usr/local/nginx/certs/cloud.source.ffe.quest/cert.key
+  cert: /usr/local/nginx/certs/source.maya.locker/fullchain.cer
+  key: /usr/local/nginx/certs/source.maya.locker/cert.key
 
 obfs:
-  type: salamander 
+  type: salamander
   salamander:
-    password: rpxMG1O5Ua
+    password: uc0jSOnoq57
 auth:
   type: password
-  password: dVgZ1NWt8w
+  password: ifQ4MdK9FEt
 
 bandwidth:
-  up: 700 mbps
-  down: 700 mbps
+  up: 1 gbps
+  down: 1 gbps
 
 masquerade:
   type: proxy
   proxy:
-    url: https://cloud.source.ffe.quest/
+    url: https://source.maya.locker/
     rewriteHost: true
     insecure: false
+
 EOF
 echo -e "\033[34m[3/4] 启动hysteria2...\033[0m"
 systemctl enable --now hysteria-server.service
