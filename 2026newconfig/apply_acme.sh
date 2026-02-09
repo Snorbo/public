@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # 默认值
-DEFAULT_CREDENTIALS_PATH="/etc/letsencrypt/cloudflare.ini"
+DEFAULT_CREDENTIALS_PATH="/root/cloudflare.int"
 DEFAULT_PROPAGATION_SECONDS="60"
 DEFAULT_KEY_TYPE="ecdsa"
 SCRIPT_NAME="$(basename "$0")"
@@ -43,7 +43,7 @@ show_help() {
     echo "  --dry-run                 模拟运行，不实际申请证书"
     echo ""
     echo -e "${GREEN}示例:${NC}"
-    echo "  $SCRIPT_NAME -c /etc/letsencrypt/cloudflare.ini -d *.example.com"
+    echo "  $SCRIPT_NAME -c /root/cloudflare.int -d *.example.com"
     echo "  $SCRIPT_NAME --domain example.com --propagation 30"
     echo ""
     echo -e "${YELLOW}注意:${NC}"
