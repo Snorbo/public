@@ -8,8 +8,8 @@ sudo tee /etc/hysteria/config.yaml <<'EOF'
 listen: :1553
 
 tls:
-  cert: /usr/local/nginx/certs/steampipe.maya.locker/fullchain.cer
-  key: /usr/local/nginx/certs/steampipe.maya.locker/cert.key
+  cert: /usr/local/nginx/certs/steampipe.website/fullchain.cer
+  key: /usr/local/nginx/certs/steampipe.website/cert.key
 
 obfs:
   type: salamander
@@ -26,7 +26,7 @@ bandwidth:
 masquerade:
   type: proxy
   proxy:
-    url: https://steampipe.maya.locker/
+    url: https://steampipe.website/
     rewriteHost: true
     insecure: false
 
