@@ -16,7 +16,7 @@ http {
     keepalive_timeout  65;
     server {
         listen       80;
-        server_name  cloud.steampipe.maya.locker;
+        server_name  cloud.steampipe.website;
         location / {
             root   html;
             index  index.html index.htm;
