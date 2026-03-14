@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-DOMAIN="cloud.steampipe.maya.locker"
+DOMAIN="cloud.steampipe.website"
 EMAIL="email.snorbo@gmail.com"
 NGINX_CONF="/usr/local/nginx/conf/nginx.conf"
 CERT_DIR="/usr/local/nginx/certs/${DOMAIN}"
