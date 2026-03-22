@@ -103,15 +103,51 @@ sudo systemctl enable --now nginx
 echo -e "\n操作完成！请验证服务状态："
 systemctl status nginx
 
-# . 系统清理
-echo "正在清理无用缓存和旧软件包..."
-sudo apt autoremove -y
-sudo apt autoclean
+
+# --- BBR v3 全自动安装模块 ---
+cd /root
+echo -e "\033[36m正在启动 BBR v3 自动安装程序...\033[0m"
+
+# 1. 确保必要依赖 (jq 是解析 GitHub API 的关键)
+sudo apt-get update && sudo apt-get install -y jq curl wget dpkg
+
+# 2. 自动检测架构并获取最新版下载链接
+ARCH=$(uname -m)
+BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
+RELEASE_DATA=$(curl -s "$BASE_URL")
+
+if [[ "$ARCH" == "aarch64" ]]; then
+    TAG_NAME=$(echo "$RELEASE_DATA" | jq -r 'sort_by(.published_at) | reverse | .[] | select(.tag_name | contains("arm64")) | .tag_name' | head -n1)
+elif [[ "$ARCH" == "x86_64" ]]; then
+    TAG_NAME=$(echo "$RELEASE_DATA" | jq -r 'sort_by(.published_at) | reverse | .[] | select(.tag_name | contains("x86_64")) | .tag_name' | head -n1)
+fi
+
+if [[ -z "$TAG_NAME" ]]; then
+    echo "未找到匹配架构的内核，跳过 BBR 安装。"
+else
+    # 3. 执行静默下载
+    ASSET_URLS=$(echo "$RELEASE_DATA" | jq -r --arg tag "$TAG_NAME" '.[] | select(.tag_name == $tag) | .assets[].browser_download_url')
+    for URL in $ASSET_URLS; do
+        wget -q --show-progress "$URL" -P /tmp/
+    done
+
+    # 4. 强制安装并配置参数
+    echo "安装内核并配置 BBR+FQ..."
+    sudo dpkg -i /tmp/linux-*.deb
+    sudo update-grub
+
+    # 直接写入永久配置，无需询问
+    SYSCTL_CONF="/etc/sysctl.d/99-joeyblog.conf"
+    echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr" | sudo tee "$SYSCTL_CONF" > /dev/null
+    
+fi
 
 echo "------------------------------------------------"
 echo "SSH 版本: $(ssh -V 2>&1)"
 echo "SSH 端口: $NEW_PORT"
 echo "Nginx 版本: $NGINX_VER"
 echo "请记住：下次登录请使用新端口: $NEW_PORT"
+echo -e "\033[32mBBR v3 安装完成，请手动重启...\033[0m"
 echo "当前虚拟内存状态："
 free -m
+
