@@ -118,7 +118,6 @@ install_packages() {
     sudo dpkg -i /tmp/linux-*.deb
     sudo update-grub
     echo -e "\033[36m安装完成，记得重启系统\033[0m"
-    reboot
 }
 
 # 美化输出的分隔线
