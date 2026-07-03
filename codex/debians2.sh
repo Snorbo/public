@@ -534,3 +534,97 @@ main() {
 }
 
 main "$@"
+    sed -i "s/^Port\s\+[0-9].*/Port $new_port/" /etc/ssh/sshd_config
+    grep -q "^Port $new_port" /etc/ssh/sshd_config || echo "Port $new_port" >> /etc/ssh/sshd_config
+    log "SSH 端口 $current_port -> $new_port"
+
+    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow "$new_port/tcp" 2>/dev/null || true
+        ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
+    fi
+    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
+        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && info "firewalld 已放行 $new_port/tcp" || warn "firewalld 规则可能未生效。"
+    fi
+    if command -v iptables &>/dev/null; then
+        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
+        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
+    fi
+
+    # ── 重启 SSH ──────────────────────────────────────────────
+    command -v sshd &>/dev/null && ! sshd -t 2>/dev/null && { error "sshd_config 语法错误，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
+    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || { error "SSH 重启失败，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
+    info "SSH 已重启，端口：$new_port"
+    sleep 1; ss -tlnp 2>/dev/null | grep -q ":${new_port} " && info "OK 确认监听 $new_port" || warn "未检测到 SSH 监听 $new_port"
+    # ── 调试：显示修改后的 Port 行 ─────────────────────────
+    log "修改后 sshd_config 中的 Port 行："
+    grep -n '^[[:space:]]*Port\b' /etc/ssh/sshd_config | while IFS= read -r line; do
+        log "  $line"
+    done
+    log "SSH 端口 $current_port -> $new_port"
+
+    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow "$new_port/tcp" 2>/dev/null || true
+        ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
+    fi
+    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
+        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && info "firewalld 已放行 $new_port/tcp" || warn "firewalld 规则可能未生效。"
+    fi
+    if command -v iptables &>/dev/null; then
+        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
+        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
+    fi
+
+    # ── 重启 SSH ──────────────────────────────────────────────
+    # 语法检查 + 显示具体错误
+    if command -v sshd &>/dev/null; then
+        local syntax_ok
+        syntax_ok=$(sshd -t 2>&1) || {
+            error "sshd_config 语法错误："
+            echo "$syntax_ok" | while IFS= read -r err; do echo "  $err"; done
+            warn "回滚…"
+            cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
+            return 1
+        }
+        log "sshd_config 语法检查通过。"
+    fi
+
+    # 重启并检查是否真的启动成功
+    local ssh_restart_ok=true
+    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || ssh_restart_ok=false
+    if ! $ssh_restart_ok; then
+        error "SSH 重启失败！"
+        # 检查 systemd 状态
+        systemctl status sshd --no-pager 2>&1 | head -10 | while IFS= read -r line; do log "  $line"; done
+        warn "回滚…"
+        cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
+        systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
+        return 1
+    fi
+
+    # 等待并检查监听端口
+    sleep 2
+    local listening
+    listening=$(ss -tlnp 2>/dev/null | grep sshd) || listening=""
+    if echo "$listening" | grep -q ":${new_port} "; then
+        info "OK 确认 SSH 正在监听端口 $new_port"
+    else
+        warn "SSH 未在端口 $new_port 上监听！当前监听端口："
+        if [[ -n "$listening" ]]; then
+            echo "$listening" | while IFS= read -r line; do log "  $line"; done
+        else
+            log "  sshd 没有监听任何端口（可能未启动）"
+        fi
+        # 检查 sshd 是否在运行
+        if pgrep -x sshd &>/dev/null; then
+            log "  sshd 进程存在但未监听 $new_port"
+        else
+            log "  sshd 进程不存在"
+            systemctl status sshd --no-pager 2>&1 | tail -5 | while IFS= read -r line; do log "  $line"; done
+        fi
+    fi
