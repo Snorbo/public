@@ -436,12 +436,11 @@ step_release_port53() {
         grep -q '^DNSStubListener=' "$resolved_conf" && sed -i 's/^DNSStubListener=.*/DNSStubListener=no/' "$resolved_conf" \
             || sed -i '/^\[Resolve\]/a DNSStubListener=no' "$resolved_conf"
     else
-        cat >> "$resolved_conf" <<- 'EOL'
-
-        [Resolve]
-        DNS=8.8.8.8 1.1.1.1
-        DNSStubListener=no
-        EOL
+        cat >> "$resolved_conf" << 'EOL'
+[Resolve]
+DNS=8.8.8.8 1.1.1.1
+DNSStubListener=no
+EOL
     fi
 
     log "已配置 resolved.conf"
