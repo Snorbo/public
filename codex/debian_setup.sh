@@ -82,7 +82,6 @@ register_rollback() {
 # ═══════════════════════════════════════════════════════════════════════════════
 step_sysinfo() {
     step_header "步骤 1/10：系统信息查询 (sysinfo)"
-    # 纯展示，无需 root
 
     log "正在采集系统信息…"
 
@@ -94,7 +93,6 @@ step_sysinfo() {
     local country=""
     local city=""
 
-    # 并行获取网络信息
     local ipinfo_json
     ipinfo_json=$(curl -s --max-time 3 https://ipinfo.io 2>/dev/null) || ipinfo_json=""
     if [[ -n "$ipinfo_json" ]]; then
@@ -104,7 +102,6 @@ step_sysinfo() {
         public_ip=$(echo "$ipinfo_json" | grep '"ip"' | awk -F': "' '{print $2}' | tr -d '",')
     fi
 
-    # 判断是否为国内运营商 → 使用本地 IP 展示
     if echo "$isp_info" | grep -Eiq 'CHINANET|mobile|unicom|telecom'; then
         ipv4_address=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[^ ]+' || \
             hostname -I 2>/dev/null | awk '{print $1}')
@@ -213,7 +210,7 @@ step_sysinfo() {
     echo -e "${CYAN}CPU频率:        ${NC}$cpu_freq"
     echo -e "${CYAN}CPU占用:        ${NC}${cpu_usage}%"
     echo -e "${CYAN}系统负载:       ${NC}$load"
-    echo -e "${CYAN}TCP|UDP连接:    ${NC}${tcp_count}|${udp_count}"
+    echo -e "${CYAN}TCP/UDP连接:    ${NC}${tcp_count}/${udp_count}"
     echo -e "${CYAN}物理内存:       ${NC}$mem_info"
     echo -e "${CYAN}虚拟内存:       ${NC}$swap_info"
     echo -e "${CYAN}硬盘占用:       ${NC}$disk_info"
@@ -408,34 +405,118 @@ step_change_ssh_port() {
         info "端口已经是 $new_port，无需修改。"; return 0
     fi
 
+    # 检查新端口是否已被其他进程占用
+    if ss -tlnp 2>/dev/null | grep -q ":${new_port} "; then
+        warn "端口 $new_port 已被占用："
+        ss -tlnp 2>/dev/null | grep ":${new_port} "
+        read -r -p "端口已被占用，仍然继续？(yes/NO): " force_port
+        if [[ "${force_port,,}" != "yes" ]]; then
+            info "取消端口修改。"; return 1
+        fi
+    fi
+
     cp /etc/ssh/sshd_config "${BACKUP_DIR}/sshd_config.bak"
     register_rollback "cp '${BACKUP_DIR}/sshd_config.bak' /etc/ssh/sshd_config"
     register_rollback "systemctl restart sshd || service ssh restart || true"
     log "已备份 sshd_config"
 
-    sed -i 's/^Port\s\+.*/Port was: &\n# Modified by debian_setup.sh/' /etc/ssh/sshd_config
+    # 注释掉所有现有 Port 指令，追加新端口 (比依赖 sed 的 \n 更可靠)
+    sed -i 's/^Port\s\+.*/#&/' /etc/ssh/sshd_config
     echo "Port $new_port" >> /etc/ssh/sshd_config
     log "SSH 端口已从 $current_port 修改为 $new_port"
 
-    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
-        safe_run "UFW 放行新端口" ufw allow "$new_port/tcp"
-        safe_run "UFW 放行新端口(完整)" ufw allow "$new_port"
-    fi
-    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
-        safe_run "firewalld 放行" firewall-cmd --permanent --add-port="${new_port}/tcp"
-        safe_run "firewalld 重载" firewall-cmd --reload
+    # ── 防火墙放行 ──────────────────────────────────────────────
+    local ufw_ok=false
+    local ipt_ok=false
+
+    if command -v ufw &>/dev/null; then
+        if ufw status 2>/dev/null | grep -q "active"; then
+            safe_run "UFW 放行 $new_port/tcp" ufw allow "$new_port/tcp"
+            safe_run "UFW 放行 $new_port"     ufw allow "$new_port"
+            ufw_ok=true
+        else
+            warn "UFW 未启用，跳过。"
+        fi
     fi
 
-    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
+    if command -v firewall-cmd &>/dev/null; then
+        if firewall-cmd --state 2>/dev/null | grep -q "running"; then
+            safe_run "firewalld 放行 $new_port/tcp" firewall-cmd --permanent --add-port="${new_port}/tcp"
+            safe_run "firewalld 重载" firewall-cmd --reload
+            ipt_ok=true
+        fi
+    fi
+
+    # UFW 和 firewalld 均无效时，尝试直接 iptables
+    if ! $ufw_ok && ! $ipt_ok; then
+        if command -v iptables &>/dev/null; then
+            local default_policy
+            default_policy=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
+            if [[ "$default_policy" == "DROP" || "$default_policy" == "REJECT" ]]; then
+                warn "iptables INPUT 默认策略为 DROP/REJECT，尝试放行 $new_port…"
+                safe_run "iptables 放行 $new_port" iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
+                if command -v iptables-save &>/dev/null; then
+                    safe_run "保存 iptables 规则" sh -c "iptables-save > /etc/iptables/rules.v4 2>/dev/null" || true
+                fi
+                ipt_ok=true
+            else
+                info "iptables INPUT 默认策略为 ACCEPT，无需额外放行。"
+                ipt_ok=true
+            fi
+        fi
+    fi
+
+    if ! $ufw_ok && ! $ipt_ok; then
+        warn "未能自动配置防火墙。如果云服务商有安全组/防火墙，请手动放行端口 $new_port。"
+    fi
+
+    # ── 重启 SSH ──────────────────────────────────────────────
+    # 先验证 sshd_config 语法
+    if command -v sshd &>/dev/null; then
+        if ! sshd -t 2>/dev/null; then
+            error "sshd_config 语法检查失败！回滚…"
+            cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
+            error "已回滚。请手动检查 sshd_config。"
+            return 1
+        fi
+        log "sshd_config 语法检查通过。"
+    fi
+
+    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || {
+        error "SSH 服务重启失败，回滚…"
+        cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
+        return 1
+    }
     info "SSH 服务已重启，新端口：$new_port"
 
-    echo -e "${YELLOW}⚠ 保持当前会话，另开终端测试：ssh -p $new_port user@host${NC}"
+    # 验证监听
+    sleep 1
+    if ss -tlnp 2>/dev/null | grep -q ":${new_port} "; then
+        info "OK 确认 SSH 正在监听端口 $new_port"
+    else
+        warn "未检测到 SSH 在 $new_port 上监听："
+        ss -tlnp 2>/dev/null | grep -E "sshd" || true
+    fi
+
+    # ── 确认回滚 ──────────────────────────────────────────────
+    echo ""
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}  重要提醒${NC}"
+    echo -e "${YELLOW}  1. 保持当前 SSH 会话不要关闭${NC}"
+    echo -e "${YELLOW}  2. 另开终端测试：ssh -p $new_port user@服务器IP${NC}"
+    echo -e "${YELLOW}  3. 如云商有安全组，请确保已放行 $new_port${NC}"
+    echo -e "${YELLOW}  4. 连接成功后再来输入 yes 确认${NC}"
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+    echo ""
+
     read -r -p "确认新端口连接正常？(yes/NO): " confirm
     if [[ "$confirm" != "yes" ]]; then
         warn "回滚 SSH 端口…"
         cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
         systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
-        error "已回滚。"; return 1
+        error "已回滚到端口 $current_port。"
+        echo -e "${YELLOW}若云商安全组未放行，添加规则后可重新执行步骤 6。${NC}"
+        return 1
     fi
 
     step_mark_executed "change_ssh_port"
