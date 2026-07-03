@@ -82,10 +82,8 @@ register_rollback() {
 # ═══════════════════════════════════════════════════════════════════════════════
 step_sysinfo() {
     step_header "步骤 1/10：系统信息查询 (sysinfo)"
-
     log "正在采集系统信息…"
     local public_ip="" ipv4_address="" ipv6_address="" isp_info="" country="" city=""
-
     local ipinfo_json
     ipinfo_json=$(curl -s --max-time 3 https://ipinfo.io 2>/dev/null) || ipinfo_json=""
     if [[ -n "$ipinfo_json" ]]; then
@@ -94,20 +92,17 @@ step_sysinfo() {
         isp_info=$(echo "$ipinfo_json" | grep '"org"' | awk -F': "' '{print $2}' | tr -d '",')
         public_ip=$(echo "$ipinfo_json" | grep '"ip"' | awk -F': "' '{print $2}' | tr -d '",')
     fi
-
     if echo "$isp_info" | grep -Eiq 'CHINANET|mobile|unicom|telecom'; then
         ipv4_address=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[^ ]+' || hostname -I 2>/dev/null | awk '{print $1}')
     else
         ipv4_address="$public_ip"
     fi
     ipv6_address=$(curl -s --max-time 2 https://v6.ipinfo.io/ip 2>/dev/null) || ipv6_address=""
-
     local rx_tx
     rx_tx=$(awk 'BEGIN{rx=0;tx=0} $1~/^(eth|ens|enp|eno)[0-9]+/{rx+=$2;tx+=$10} END{printf "%.0f %.0f", rx, tx}' /proc/net/dev 2>/dev/null)
     local rx_bytes=$(echo "$rx_tx" | awk '{print $1}') tx_bytes=$(echo "$rx_tx" | awk '{print $2}')
     hr() { local b=$1; if ((b>1073741824)); then echo "$(echo "scale=2; $b/1073741824" | bc)G"; elif ((b>1048576)); then echo "$(echo "scale=2; $b/1048576" | bc)M"; elif ((b>1024)); then echo "$(echo "scale=2; $b/1024" | bc)K"; else echo "${b}B"; fi; }
     local rx=$(hr "$rx_bytes") tx=$(hr "$tx_bytes")
-
     local cpu_info=$(lscpu 2>/dev/null | awk -F': +' '/Model name:/ {print $2; exit}') || cpu_info="?"
     local cpu_cores=$(nproc 2>/dev/null) || cpu_cores="?"
     local cpu_stat1=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat1=""
@@ -122,8 +117,7 @@ step_sysinfo() {
     local mem_info=$(free -b 2>/dev/null | awk 'NR==2{printf "%.2f/%.2fM (%.1f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}') || mem_info="?"
     local swap_info=$(free -m 2>/dev/null | awk 'NR==3{used=$3;total=$2;if(total==0){p=0}else{p=used*100/total}; printf "%dM/%dM (%d%%)", used, total, p}') || swap_info="?"
     local disk_info=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s/%s (%s)", $3, $2, $5}') || disk_info="?"
-    local hostname=$(uname -n)
-    local kernel_version=$(uname -r)
+    local hostname=$(uname -n) kernel_version=$(uname -r)
     local os_info=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d '=' -f2 | tr -d '"') || os_info="?"
     local load=$(uptime 2>/dev/null | awk '{print $(NF-2), $(NF-1), $NF}') || load="?"
     local runtime=$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60);if(d>0)printf "%d天 ",d;if(h>0)printf "%d时 ",h;printf "%d分"}' /proc/uptime 2>/dev/null) || runtime="?"
@@ -133,7 +127,6 @@ step_sysinfo() {
     local timezone=$(timedatectl 2>/dev/null | grep "Time zone" | awk '{print $3}') || timezone=$(date +"%Z %z")
     local current_time=$(date "+%Y-%m-%d %I:%M %p")
     local tcp_count=$(ss -t 2>/dev/null | wc -l) || tcp_count="?"; local udp_count=$(ss -u 2>/dev/null | wc -l) || udp_count="?"
-
     clear
     echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
     echo -e "${CYAN}      系统信息查询${NC}"
@@ -161,7 +154,6 @@ step_sysinfo() {
     echo -e "${CYAN}时区/系统时间:  ${NC}$timezone $current_time"
     echo -e "${CYAN}运行时长:       ${NC}$runtime"
     echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
-
     step_mark_executed "sysinfo"; info "系统信息已显示。"
 }
 
@@ -264,9 +256,13 @@ step_change_ssh_port() {
 
     sed -i "s/^Port\s\+[0-9].*/Port $new_port/" /etc/ssh/sshd_config
     grep -q "^Port $new_port" /etc/ssh/sshd_config || echo "Port $new_port" >> /etc/ssh/sshd_config
+
+    # 调试：显示修改后 sshd_config 中所有 Port 行
+    log "修改后 sshd_config 中的 Port 行："
+    grep -n '^[[:space:]]*Port\b' /etc/ssh/sshd_config | while IFS= read -r line; do log "  $line"; done
     log "SSH 端口 $current_port -> $new_port"
 
-    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
+    # ── 防火墙放行 ──
     if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
         ufw allow "$new_port/tcp" 2>/dev/null || true
         ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
@@ -281,13 +277,48 @@ step_change_ssh_port() {
         [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
     fi
 
-    # ── 重启 SSH ──────────────────────────────────────────────
-    command -v sshd &>/dev/null && ! sshd -t 2>/dev/null && { error "sshd_config 语法错误，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
-    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || { error "SSH 重启失败，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
-    info "SSH 已重启，端口：$new_port"
-    sleep 1; ss -tlnp 2>/dev/null | grep -q ":${new_port} " && info "OK 确认监听 $new_port" || warn "未检测到 SSH 监听 $new_port"
+    # ── 重启 SSH ──
+    if command -v sshd &>/dev/null; then
+        local syntax_ok
+        syntax_ok=$(sshd -t 2>&1) || {
+            error "sshd_config 语法错误："
+            echo "$syntax_ok" | while IFS= read -r err; do echo "  $err"; done
+            warn "回滚…"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1
+        }
+        log "sshd_config 语法检查通过。"
+    fi
 
-    # ── 确认回滚 ──────────────────────────────────────────────
+    local ssh_restart_ok=true
+    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || ssh_restart_ok=false
+    if ! $ssh_restart_ok; then
+        error "SSH 重启失败！systemd 状态："
+        systemctl status sshd --no-pager 2>&1 | head -10 | while IFS= read -r line; do log "  $line"; done
+        warn "回滚…"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
+        systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
+        return 1
+    fi
+
+    sleep 2
+    local listening
+    listening=$(ss -tlnp 2>/dev/null | grep sshd) || listening=""
+    if echo "$listening" | grep -q ":${new_port} "; then
+        info "OK 确认 SSH 正在监听端口 $new_port"
+    else
+        warn "SSH 未在端口 $new_port 上监听！当前监听端口："
+        if [[ -n "$listening" ]]; then
+            echo "$listening" | while IFS= read -r line; do log "  $line"; done
+        else
+            log "  sshd 没有监听任何端口"
+        fi
+        if pgrep -x sshd &>/dev/null; then
+            log "  sshd 进程存在但未监听 $new_port"
+        else
+            log "  sshd 进程不存在"
+            systemctl status sshd --no-pager 2>&1 | tail -5 | while IFS= read -r line; do log "  $line"; done
+        fi
+    fi
+
+    # ── 确认回滚 ──
     echo -e "${YELLOW}════════════════════════════════════════════════════════════════${NC}"
     echo -e "${YELLOW}  保持当前会话，另开终端测试：ssh -p $new_port user@服务器IP${NC}"
     echo -e "${YELLOW}  云商安全组需手动放行 $new_port${NC}"
@@ -309,7 +340,6 @@ step_ssh_key_config() {
     local sshd_config="/etc/ssh/sshd_config"
     [[ ! -f "$sshd_config" ]] && { error "未找到 $sshd_config"; return 1; }
     [[ ! -f "${BACKUP_DIR}/sshd_config.bak" ]] && { cp "$sshd_config" "${BACKUP_DIR}/sshd_config.bak"; register_rollback "cp '${BACKUP_DIR}/sshd_config.bak' '$sshd_config'"; register_rollback "systemctl restart sshd || service ssh restart || true"; }
-
     local ssh_key="${SSH_PUBKEY:-}"
     if [[ -z "$ssh_key" ]]; then
         echo -e "${YELLOW}粘贴 SSH 公钥，新行输入 EOF 结束（直接回车跳过）：${NC}"
@@ -319,7 +349,6 @@ step_ssh_key_config() {
     else
         info "使用环境变量 SSH_PUBKEY。"
     fi
-
     if [[ -n "$ssh_key" ]]; then
         mkdir -p /root/.ssh; chmod 700 /root/.ssh
         echo "$ssh_key" >> /root/.ssh/authorized_keys; sort -u /root/.ssh/authorized_keys -o /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
@@ -331,9 +360,7 @@ step_ssh_key_config() {
     else
         info "跳过。"
     fi
-
-    local dp="${SSH_DISABLE_PASSWORD:-}"
-    [[ -z "$dp" ]] && { read -r -p "禁用 SSH 密码登录？(yes/NO): " dp; dp="${dp:-no}"; }
+    local dp="${SSH_DISABLE_PASSWORD:-}"; [[ -z "$dp" ]] && { read -r -p "禁用 SSH 密码登录？(yes/NO): " dp; dp="${dp:-no}"; }
     if [[ "${dp,,}" == "yes" || "${dp,,}" == "y" ]]; then
         local kc=$(wc -l < /root/.ssh/authorized_keys 2>/dev/null || echo 0)
         if [[ "$kc" -eq 0 ]]; then
@@ -347,14 +374,12 @@ step_ssh_key_config() {
         grep -q '^PubkeyAuthentication yes' "$sshd_config" || echo 'PubkeyAuthentication yes' >> "$sshd_config"
         sed -i 's/^#\?PermitEmptyPasswords\s\+.*/PermitEmptyPasswords no/' "$sshd_config"
         log "已配置：密码禁用，密钥启用。"
-        systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
-        info "SSH 已重启。"
+        systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true; info "SSH 已重启。"
         echo -e "${YELLOW}保持当前会话，另开终端测试密钥登录。${NC}"
         read -r -p "确认密钥登录正常？(yes/NO): " ck
         if [[ "$ck" != "yes" ]]; then
             warn "回滚…"; cp "${BACKUP_DIR}/sshd_config.bak" "$sshd_config"
-            systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
-            error "已回滚。"; return 1
+            systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true; error "已回滚。"; return 1
         fi
     else
         info "跳过。"
@@ -373,8 +398,7 @@ step_block_ipqs() {
     for entry in "${entries[@]}"; do
         grep -qF "$entry" "$hosts_file" 2>/dev/null && log "  已存在：$entry" || { echo "$entry" >> "$hosts_file"; log "  已添加：$entry"; ((added++)); }
     done
-    info "IPQS 屏蔽完成（新增 $added 条）。"
-    step_mark_executed "block_ipqs"
+    info "IPQS 屏蔽完成（新增 $added 条）。"; step_mark_executed "block_ipqs"
 }
 
 # ─── 步骤 9：解除 53 端口占用 ──────────────────────────────────────────
@@ -412,7 +436,6 @@ step_system_cleanup() {
     warn "即将深度清理：旧内核、孤立包、apt 缓存、残留配置、日志、tmp、snap、pip/npm。"
     local confirm; read -r -p "确认？(yes/NO): " confirm; [[ "${confirm,,}" != "yes" ]] && { info "跳过。"; return 0; }
     echo ""
-
     info "--- 1/8 清理旧内核 ---"
     if command -v dpkg &>/dev/null; then
         local rk=$(uname -r | sed 's/-[a-z]*$//; s/-$//')
@@ -433,7 +456,6 @@ step_system_cleanup() {
         for pkg in "${hdrs[@]}"; do local ver=$(echo "$pkg" | sed 's/^linux-headers-//'); [[ "$ver" != "$rk" && "$ver" != "generic" ]] && hpurge+=("$pkg"); done
         [[ ${#hpurge[@]} -gt 0 ]] && safe_run "移除旧 headers" apt-get purge -y "${hpurge[@]}" 2>/dev/null || true
     fi
-
     echo ""; info "--- 2/8 孤立包 ---"; safe_run "autoremove" apt-get autoremove -y
     echo ""; info "--- 3/8 apt 缓存 ---"; safe_run "autoclean" apt-get autoclean; safe_run "clean" apt-get clean; rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
     echo ""; info "--- 4/8 残留配置 ---"
@@ -448,8 +470,7 @@ step_system_cleanup() {
     echo ""; info "--- 8/8 pip/npm 缓存 ---"
     command -v pip3 &>/dev/null && pip3 cache purge 2>/dev/null || true; command -v pip &>/dev/null && pip cache purge 2>/dev/null || true
     command -v npm &>/dev/null && npm cache clean --force 2>/dev/null || true; command -v yarn &>/dev/null && yarn cache clean 2>/dev/null || true
-    info "系统清理完成！"
-    step_mark_executed "system_cleanup"
+    info "系统清理完成！"; step_mark_executed "system_cleanup"
 }
 
 # ─── 流程内清理 ─────────────────────────────────────────────────────────────
@@ -492,8 +513,7 @@ show_menu() {
     echo "  a)  全部执行    r) 回滚    q) 退出"
     echo ""
     echo -e "  环境变量：${GREEN}SSH_PORT=2222 SSH_PUBKEY=\"...\" SSH_DISABLE_PASSWORD=yes${NC}"
-    echo -e "  静默：${GREEN}sudo ./debian_setup.sh --all${NC}"
-    echo -e "  指定：${GREEN}sudo ./debian_setup.sh --step 1,3,10${NC}"
+    echo -e "  静默：${GREEN}sudo ./debian_setup.sh --all${NC}   指定：${GREEN}sudo ./debian_setup.sh --step 1,3,10${NC}"
 }
 
 # ─── 主流程 ──────────────────────────────────────────────────────────────────
@@ -503,23 +523,19 @@ main() {
     while [[ $# -gt 0 ]]; do
         case "$1" in --all) run_all=true; shift;; --step) selected_steps="${2:-}"; shift 2;; --rollback) step_global_rollback; exit 0;; -h|--help) show_menu; exit 0;; *) error "未知参数：$1"; exit 1;; esac
     done
-
     if [[ "$run_all" == true ]]; then
         log "全部步骤"
         step_sysinfo; step_system_update; step_install_packages; step_install_bbr; step_install_nexttrace
         step_change_ssh_port; step_ssh_key_config; step_block_ipqs; step_release_port53; step_system_cleanup
         step_cleanup; info "全部完成！备份：$BACKUP_DIR"; return 0
     fi
-
     if [[ -n "$selected_steps" ]]; then
         log "步骤 $selected_steps"
         IFS=',' read -ra steps <<< "$selected_steps"
         for s in "${steps[@]}"; do s="$(echo "$s" | xargs)"
             case "$s" in 1) step_sysinfo;; 2) step_system_update;; 3) step_install_packages;; 4) step_install_bbr;; 5) step_install_nexttrace;; 6) step_change_ssh_port;; 7) step_ssh_key_config;; 8) step_block_ipqs;; 9) step_release_port53;; 10) step_system_cleanup;; *) warn "跳过：$s";; esac
-        done
-        step_cleanup; info "完成！备份：$BACKUP_DIR"; return 0
+        done; step_cleanup; info "完成！备份：$BACKUP_DIR"; return 0
     fi
-
     show_menu
     read -r -p "请选择 [1-10,a,r,q]: " choice
     case "$choice" in a|A) main --all;; r|R) step_global_rollback;; q|Q) info "退出。"; exit 0;;
@@ -527,104 +543,9 @@ main() {
             IFS=',; ' read -ra selections <<< "$choice"
             for sel in "${selections[@]}"; do sel="$(echo "$sel" | xargs)"
                 case "$sel" in 1) step_sysinfo;; 2) step_system_update;; 3) step_install_packages;; 4) step_install_bbr;; 5) step_install_nexttrace;; 6) step_change_ssh_port;; 7) step_ssh_key_config;; 8) step_block_ipqs;; 9) step_release_port53;; 10) step_system_cleanup;; *) warn "跳过：$sel";; esac
-            done
-            step_cleanup; info "完成！备份：$BACKUP_DIR"
+            done; step_cleanup; info "完成！备份：$BACKUP_DIR"
             ;;
     esac
 }
 
 main "$@"
-    sed -i "s/^Port\s\+[0-9].*/Port $new_port/" /etc/ssh/sshd_config
-    grep -q "^Port $new_port" /etc/ssh/sshd_config || echo "Port $new_port" >> /etc/ssh/sshd_config
-    log "SSH 端口 $current_port -> $new_port"
-
-    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
-    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
-        ufw allow "$new_port/tcp" 2>/dev/null || true
-        ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
-    fi
-    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
-        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
-        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && info "firewalld 已放行 $new_port/tcp" || warn "firewalld 规则可能未生效。"
-    fi
-    if command -v iptables &>/dev/null; then
-        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
-        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
-    fi
-
-    # ── 重启 SSH ──────────────────────────────────────────────
-    command -v sshd &>/dev/null && ! sshd -t 2>/dev/null && { error "sshd_config 语法错误，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
-    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || { error "SSH 重启失败，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
-    info "SSH 已重启，端口：$new_port"
-    sleep 1; ss -tlnp 2>/dev/null | grep -q ":${new_port} " && info "OK 确认监听 $new_port" || warn "未检测到 SSH 监听 $new_port"
-    # ── 调试：显示修改后的 Port 行 ─────────────────────────
-    log "修改后 sshd_config 中的 Port 行："
-    grep -n '^[[:space:]]*Port\b' /etc/ssh/sshd_config | while IFS= read -r line; do
-        log "  $line"
-    done
-    log "SSH 端口 $current_port -> $new_port"
-
-    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
-    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
-        ufw allow "$new_port/tcp" 2>/dev/null || true
-        ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
-    fi
-    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
-        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
-        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && info "firewalld 已放行 $new_port/tcp" || warn "firewalld 规则可能未生效。"
-    fi
-    if command -v iptables &>/dev/null; then
-        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
-        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
-    fi
-
-    # ── 重启 SSH ──────────────────────────────────────────────
-    # 语法检查 + 显示具体错误
-    if command -v sshd &>/dev/null; then
-        local syntax_ok
-        syntax_ok=$(sshd -t 2>&1) || {
-            error "sshd_config 语法错误："
-            echo "$syntax_ok" | while IFS= read -r err; do echo "  $err"; done
-            warn "回滚…"
-            cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
-            return 1
-        }
-        log "sshd_config 语法检查通过。"
-    fi
-
-    # 重启并检查是否真的启动成功
-    local ssh_restart_ok=true
-    systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || ssh_restart_ok=false
-    if ! $ssh_restart_ok; then
-        error "SSH 重启失败！"
-        # 检查 systemd 状态
-        systemctl status sshd --no-pager 2>&1 | head -10 | while IFS= read -r line; do log "  $line"; done
-        warn "回滚…"
-        cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config
-        systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || true
-        return 1
-    fi
-
-    # 等待并检查监听端口
-    sleep 2
-    local listening
-    listening=$(ss -tlnp 2>/dev/null | grep sshd) || listening=""
-    if echo "$listening" | grep -q ":${new_port} "; then
-        info "OK 确认 SSH 正在监听端口 $new_port"
-    else
-        warn "SSH 未在端口 $new_port 上监听！当前监听端口："
-        if [[ -n "$listening" ]]; then
-            echo "$listening" | while IFS= read -r line; do log "  $line"; done
-        else
-            log "  sshd 没有监听任何端口（可能未启动）"
-        fi
-        # 检查 sshd 是否在运行
-        if pgrep -x sshd &>/dev/null; then
-            log "  sshd 进程存在但未监听 $new_port"
-        else
-            log "  sshd 进程不存在"
-            systemctl status sshd --no-pager 2>&1 | tail -5 | while IFS= read -r line; do log "  $line"; done
-        fi
-    fi
