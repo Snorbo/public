@@ -103,9 +103,8 @@ step_sysinfo() {
     ipv6_address=$(curl -s --max-time 2 https://v6.ipinfo.io/ip 2>/dev/null) || ipv6_address=""
 
     local rx_tx
-    rx_tx=$(awk 'BEGIN{rx=0;tx=0} $1~/^(eth|ens|enp|eno)[0-9]+/{rx+=$2;tx+=$10} END{printf "%.0f %.0f", rx, tx}' /proc/net/dev)
-    local rx_bytes tx_bytes
-    rx_bytes=$(echo "$rx_tx" | awk '{print $1}'); tx_bytes=$(echo "$rx_tx" | awk '{print $2}')
+    rx_tx=$(awk 'BEGIN{rx=0;tx=0} $1~/^(eth|ens|enp|eno)[0-9]+/{rx+=$2;tx+=$10} END{printf "%.0f %.0f", rx, tx}' /proc/net/dev 2>/dev/null)
+    local rx_bytes=$(echo "$rx_tx" | awk '{print $1}') tx_bytes=$(echo "$rx_tx" | awk '{print $2}')
     hr() { local b=$1; if ((b>1073741824)); then echo "$(echo "scale=2; $b/1073741824" | bc)G"; elif ((b>1048576)); then echo "$(echo "scale=2; $b/1048576" | bc)M"; elif ((b>1024)); then echo "$(echo "scale=2; $b/1024" | bc)K"; else echo "${b}B"; fi; }
     local rx=$(hr "$rx_bytes") tx=$(hr "$tx_bytes")
 
@@ -113,7 +112,11 @@ step_sysinfo() {
     local cpu_cores=$(nproc 2>/dev/null) || cpu_cores="?"
     local cpu_stat1=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat1=""
     local cpu_usage="0"
-    if [[ -n "$cpu_stat1" ]]; then sleep 1 2>/dev/null || true; local cpu_stat2=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat2=""; if [[ -n "$cpu_stat2" ]]; then cpu_usage=$(awk '{u=$2+$4;t=$2+$4+$5;if(NR==1){u1=u;t1=t}else printf "%.1f\n",(($2+$4-u1)*100/(t-t1))}' <(echo "$cpu_stat1") <(echo "$cpu_stat2")) || cpu_usage="0"; fi; fi
+    if [[ -n "$cpu_stat1" ]]; then
+        sleep 1 2>/dev/null || true
+        local cpu_stat2=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat2=""
+        [[ -n "$cpu_stat2" ]] && cpu_usage=$(awk '{u=$2+$4;t=$2+$4+$5;if(NR==1){u1=u;t1=t}else printf "%.1f\n",(($2+$4-u1)*100/(t-t1))}' <(echo "$cpu_stat1") <(echo "$cpu_stat2")) || cpu_usage="0"
+    fi
     local cpu_freq=$(grep "MHz" /proc/cpuinfo 2>/dev/null | head -1 | awk '{printf "%.1f GHz\n", $4/1000}') || cpu_freq="?"
     local cpu_arch=$(uname -m)
     local mem_info=$(free -b 2>/dev/null | awk 'NR==2{printf "%.2f/%.2fM (%.1f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}') || mem_info="?"
@@ -129,8 +132,7 @@ step_sysinfo() {
     local dns_addrs=$(awk '/^nameserver/{printf "%s ", $2}' /etc/resolv.conf 2>/dev/null) || dns_addrs="?"
     local timezone=$(timedatectl 2>/dev/null | grep "Time zone" | awk '{print $3}') || timezone=$(date +"%Z %z")
     local current_time=$(date "+%Y-%m-%d %I:%M %p")
-    local tcp_count=$(ss -t 2>/dev/null | wc -l) || tcp_count="?"
-    local udp_count=$(ss -u 2>/dev/null | wc -l) || udp_count="?"
+    local tcp_count=$(ss -t 2>/dev/null | wc -l) || tcp_count="?"; local udp_count=$(ss -u 2>/dev/null | wc -l) || udp_count="?"
 
     clear
     echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
@@ -170,12 +172,11 @@ step_system_update() {
     if [[ -f /etc/apt/sources.list && ! -f "${BACKUP_DIR}/sources.list.bak" ]]; then
         cp /etc/apt/sources.list "${BACKUP_DIR}/sources.list.bak"
         register_rollback "cp '${BACKUP_DIR}/sources.list.bak' /etc/apt/sources.list"
-        log "已备份 /etc/apt/sources.list"
     fi
     require_run "apt update" apt-get update
     require_run "apt upgrade -y" apt-get upgrade -y
     require_run "apt dist-upgrade -y" apt-get dist-upgrade -y
-    safe_run "清理孤立依赖" apt-get autoremove -y
+    safe_run "孤立依赖清理" apt-get autoremove -y
     step_mark_executed "system_update"; info "系统更新完成。"
 }
 
@@ -193,10 +194,7 @@ step_install_packages() {
     for pkg in "${pkgs[@]}"; do
         dpkg -s "$pkg" &>/dev/null && log "  已安装：$pkg" || { safe_run "安装 $pkg" apt-get install -y "$pkg" || failed+=("$pkg"); }
     done
-    if [[ ${#failed[@]} -gt 0 ]]; then
-        warn "重试失败包：${failed[*]}"
-        safe_run "apt --fix-missing" apt-get --fix-missing install -y "${failed[@]}" || warn "仍有包安装失败：${failed[*]}"
-    fi
+    [[ ${#failed[@]} -gt 0 ]] && safe_run "apt --fix-missing" apt-get --fix-missing install -y "${failed[@]}" || warn "仍有失败：${failed[*]}"
     step_mark_executed "install_packages"; info "软件包安装完成。"
 }
 
@@ -206,15 +204,16 @@ step_install_bbr() {
     require_root
     local bbr_script="${BACKUP_DIR}/bbr.sh"
     require_run "下载 BBR 脚本" wget -q -O "$bbr_script" "https://raw.githubusercontent.com/Snorbo/public/refs/heads/main/2026newconfig/bbr.sh"
-    safe_run "赋予执行权限" chmod +x "$bbr_script"
+    chmod +x "$bbr_script" 2>/dev/null || true
     [[ -f /etc/sysctl.conf && ! -f "${BACKUP_DIR}/sysctl.conf.bak" ]] && { cp /etc/sysctl.conf "${BACKUP_DIR}/sysctl.conf.bak"; register_rollback "cp '${BACKUP_DIR}/sysctl.conf.bak' /etc/sysctl.conf"; }
     safe_run "执行 BBR 脚本" bash "$bbr_script" 1 || {
-        warn "BBR 脚本异常，尝试手动开启…"
-        { echo "net.core.default_qdisc=fq"; echo "net.ipv4.tcp_congestion_control=bbr"; } >> /etc/sysctl.conf 2>/dev/null || true
-        safe_run "sysctl -p" sysctl -p || true
+        warn "BBR 脚本异常，手动开启…"
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf 2>/dev/null || true
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf 2>/dev/null || true
+        sysctl -p 2>/dev/null || true
     }
-    local bbr_active=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}') || bbr_active="unknown"
-    lsmod 2>/dev/null | grep -q tcp_bbr && info "OK BBR 已加载（$bbr_active）" || warn "BBR 未加载，需重启。当前：$bbr_active"
+    local bbr_active=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null) || bbr_active="?"
+    lsmod 2>/dev/null | grep -q tcp_bbr && info "OK BBR 已加载（$bbr_active）" || warn "BBR 未加载，需重启。当前算法：$bbr_active"
     step_mark_executed "install_bbr"; info "BBR 安装完成。"
 }
 
@@ -226,7 +225,7 @@ step_install_nexttrace() {
         warn "官方安装失败，尝试备选…"
         local arch=$(uname -m); [[ "$arch" == "x86_64" ]] && arch="amd64"; [[ "$arch" == "aarch64" ]] && arch="arm64"
         local url=$(curl -sL "https://api.github.com/repos/nxtrace/NTrace-core/releases/latest" | grep "browser_download_url.*linux_${arch}" | grep -v "sig" | head -1 | cut -d '"' -f 4) || url=""
-        [[ -n "$url" ]] && { safe_run "下载 NextTrace" wget -q -O /usr/local/bin/nexttrace "$url"; safe_run "赋予权限" chmod +x /usr/local/bin/nexttrace; info "NextTrace 已安装"; } || warn "无法获取 NextTrace。"
+        [[ -n "$url" ]] && { wget -q -O /usr/local/bin/nexttrace "$url" && chmod +x /usr/local/bin/nexttrace; info "NextTrace 已安装"; } || warn "无法获取 NextTrace。"
     }
     step_mark_executed "install_nexttrace"; info "NextTrace 安装完成。"
 }
@@ -263,25 +262,32 @@ step_change_ssh_port() {
     register_rollback "systemctl restart sshd || service ssh restart || true"
     log "已备份 sshd_config"
 
-    # 替换现有 Port 行，无则追加（来自 kejilion.sh 风格）
     sed -i "s/^Port\s\+[0-9].*/Port $new_port/" /etc/ssh/sshd_config
     grep -q "^Port $new_port" /etc/ssh/sshd_config || echo "Port $new_port" >> /etc/ssh/sshd_config
-    log "SSH 端口 $current_port → $new_port"
+    log "SSH 端口 $current_port -> $new_port"
 
-    # 防火墙
-    command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active" && safe_run "UFW 放行 $new_port/tcp" ufw allow "$new_port/tcp"
-    command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running" && { safe_run "firewalld 放行" firewall-cmd --permanent --add-port="${new_port}/tcp"; safe_run "firewalld 重载" firewall-cmd --reload; }
+    # ── 防火墙放行（不依赖退出码，以规则真实存在为准）──
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow "$new_port/tcp" 2>/dev/null || true
+        ufw status 2>/dev/null | grep -q "$new_port" && info "UFW 已放行 $new_port/tcp" || warn "UFW 规则可能未生效，请手动检查。"
+    fi
+    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
+        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && info "firewalld 已放行 $new_port/tcp" || warn "firewalld 规则可能未生效。"
+    fi
     if command -v iptables &>/dev/null; then
         local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
-        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && safe_run "iptables 放行 $new_port" iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
+        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && { iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true; info "已添加 iptables 放行规则。"; }
     fi
 
-    # 语法检查 + 重启
+    # ── 重启 SSH ──────────────────────────────────────────────
     command -v sshd &>/dev/null && ! sshd -t 2>/dev/null && { error "sshd_config 语法错误，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
     systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null || { error "SSH 重启失败，回滚。"; cp "${BACKUP_DIR}/sshd_config.bak" /etc/ssh/sshd_config; return 1; }
     info "SSH 已重启，端口：$new_port"
     sleep 1; ss -tlnp 2>/dev/null | grep -q ":${new_port} " && info "OK 确认监听 $new_port" || warn "未检测到 SSH 监听 $new_port"
 
+    # ── 确认回滚 ──────────────────────────────────────────────
     echo -e "${YELLOW}════════════════════════════════════════════════════════════════${NC}"
     echo -e "${YELLOW}  保持当前会话，另开终端测试：ssh -p $new_port user@服务器IP${NC}"
     echo -e "${YELLOW}  云商安全组需手动放行 $new_port${NC}"
@@ -302,7 +308,6 @@ step_ssh_key_config() {
     require_root
     local sshd_config="/etc/ssh/sshd_config"
     [[ ! -f "$sshd_config" ]] && { error "未找到 $sshd_config"; return 1; }
-
     [[ ! -f "${BACKUP_DIR}/sshd_config.bak" ]] && { cp "$sshd_config" "${BACKUP_DIR}/sshd_config.bak"; register_rollback "cp '${BACKUP_DIR}/sshd_config.bak' '$sshd_config'"; register_rollback "systemctl restart sshd || service ssh restart || true"; }
 
     local ssh_key="${SSH_PUBKEY:-}"
@@ -324,7 +329,7 @@ step_ssh_key_config() {
         fi
         info "SSH 公钥已添加。"
     else
-        info "跳过密钥添加。"
+        info "跳过。"
     fi
 
     local dp="${SSH_DISABLE_PASSWORD:-}"
@@ -352,7 +357,7 @@ step_ssh_key_config() {
             error "已回滚。"; return 1
         fi
     else
-        info "跳过禁用密码。"
+        info "跳过。"
     fi
     step_mark_executed "ssh_key_config"; info "SSH 密钥配置完成。"
 }
@@ -392,7 +397,7 @@ EOL
     log "已配置 resolved.conf"
     local rl="/etc/resolv.conf"
     [[ -L "$rl" ]] || cp "$rl" "${BACKUP_DIR}/resolv.conf.bak" 2>/dev/null || true
-    safe_run "创建软链接" ln -sf /run/systemd/resolve/resolv.conf "$rl"
+    ln -sf /run/systemd/resolve/resolv.conf "$rl" 2>/dev/null || true
     safe_run "重启 systemd-resolved" systemctl restart systemd-resolved
     echo ""; info "53 端口验证："; command -v lsof &>/dev/null && lsof -i :53 2>/dev/null || ss -tlnp 2>/dev/null | grep ':53 ' || echo "  (无进程监听 53)"
     echo ""; info "DNS 解析测试："
@@ -430,7 +435,7 @@ step_system_cleanup() {
     fi
 
     echo ""; info "--- 2/8 孤立包 ---"; safe_run "autoremove" apt-get autoremove -y
-    echo ""; info "--- 3/8 apt 缓存 ---"; safe_run "autoclean" apt-get autoclean; safe_run "clean" apt-get clean; safe_run "删除 archives" rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
+    echo ""; info "--- 3/8 apt 缓存 ---"; safe_run "autoclean" apt-get autoclean; safe_run "clean" apt-get clean; rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
     echo ""; info "--- 4/8 残留配置 ---"
     local rc=$(dpkg -l 2>/dev/null | awk '/^rc/ {print $2}' | wc -l) || rc=0
     [[ "$rc" -gt 0 ]] && { dpkg -l | awk '/^rc/ {print $2}' | xargs -r dpkg --purge 2>/dev/null || true; info "已清理 $rc 个。"; } || info "无残留配置。"
@@ -439,13 +444,10 @@ step_system_cleanup() {
     echo ""; info "--- 6/8 日志 ---"
     command -v journalctl &>/dev/null && { local js=$(journalctl --disk-usage 2>/dev/null | awk '{print $NF}') || js="?"; log "日志占用：$js"; echo "清理: 1) 100MB  2) 7天  3) 跳过"; local jc; read -r -p "选择 [1/2/3]: " jc; case "${jc:-3}" in 1) safe_run "日志 100M" journalctl --vacuum-size=100M 2>/dev/null || true;; 2) safe_run "日志 7d" journalctl --vacuum-time=7d 2>/dev/null || true;; *) info "跳过。"; esac; } || info "journalctl 不可用。"
     echo ""; info "--- 7/8 临时文件 ---"
-    safe_run "清理 /tmp" find /tmp -type f -atime +7 -delete 2>/dev/null || true
-    safe_run "清理 /var/tmp" find /var/tmp -type f -atime +7 -delete 2>/dev/null || true
+    find /tmp -type f -atime +7 -delete 2>/dev/null || true; find /var/tmp -type f -atime +7 -delete 2>/dev/null || true
     echo ""; info "--- 8/8 pip/npm 缓存 ---"
-    command -v pip3 &>/dev/null && safe_run "pip3" pip3 cache purge 2>/dev/null || true
-    command -v pip  &>/dev/null && safe_run "pip"  pip  cache purge 2>/dev/null || true
-    command -v npm  &>/dev/null && safe_run "npm"  npm  cache clean --force 2>/dev/null || true
-    command -v yarn &>/dev/null && safe_run "yarn" yarn cache clean 2>/dev/null || true
+    command -v pip3 &>/dev/null && pip3 cache purge 2>/dev/null || true; command -v pip &>/dev/null && pip cache purge 2>/dev/null || true
+    command -v npm &>/dev/null && npm cache clean --force 2>/dev/null || true; command -v yarn &>/dev/null && yarn cache clean 2>/dev/null || true
     info "系统清理完成！"
     step_mark_executed "system_cleanup"
 }
@@ -453,7 +455,7 @@ step_system_cleanup() {
 # ─── 流程内清理 ─────────────────────────────────────────────────────────────
 step_cleanup() {
     step_header "清理临时文件"
-    safe_run "删除 BBR 脚本" rm -f "${BACKUP_DIR}/bbr.sh" 2>/dev/null || true
+    rm -f "${BACKUP_DIR}/bbr.sh" 2>/dev/null || true
     log "备份保留：$BACKUP_DIR"
     local sz=$(du -sh "$BACKUP_DIR" 2>/dev/null | awk '{print $1}') || sz="N/A"
     info "备份大小：$sz"
@@ -466,7 +468,7 @@ step_global_rollback() {
     [[ ! -f "$ROLLBACK_FILE" ]] && { info "无回滚记录。"; return 0; }
     local cnt=$(wc -l < "$ROLLBACK_FILE"); [[ "$cnt" -eq 0 ]] && { info "无回滚操作。"; return 0; }
     warn "执行 $cnt 条回滚…"
-    tac "$ROLLBACK_FILE" | while IFS= read -r cmd; do [[ -n "$cmd" ]] && safe_run "回滚" bash -c "$cmd"; done
+    tac "$ROLLBACK_FILE" | while IFS= read -r cmd; do [[ -n "$cmd" ]] && bash -c "$cmd" >> "$LOG_FILE" 2>&1 || true; done
     rm -f "$EXECUTED_STEPS_FILE"; info "回滚完成。"
 }
 
@@ -532,34 +534,3 @@ main() {
 }
 
 main "$@"
-    # 防火墙
-    command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active" && safe_run "UFW 放行 $new_port/tcp" ufw allow "$new_port/tcp"
-    command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running" && { safe_run "firewalld 放行" firewall-cmd --permanent --add-port="${new_port}/tcp"; safe_run "firewalld 重载" firewall-cmd --reload; }
-    if command -v iptables &>/dev/null; then
-        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
-        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && safe_run "iptables 放行 $new_port" iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
-    fi
-    # 防火墙放行
-    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
-        # 不依赖 ufw allow 的退出码，先执行再验证规则是否存在
-        ufw allow "$new_port/tcp" 2>/dev/null || true
-        if ufw status 2>/dev/null | grep -q "$new_port"; then
-            info "UFW 已放行端口 $new_port/tcp"
-        else
-            warn "UFW 规则添加可能异常，请手动验证：ufw status"
-        fi
-    fi
-    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
-        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
-        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && \
-            info "firewalld 已放行端口 $new_port/tcp" || \
-            warn "firewalld 规则添加可能异常，请手动验证。"
-    fi
-    if command -v iptables &>/dev/null; then
-        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
-        if [[ "$dp" == "DROP" || "$dp" == "REJECT" ]]; then
-            iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
-            info "已添加 iptables 放行规则。"
-        fi
-    fi
