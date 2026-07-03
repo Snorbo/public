@@ -381,7 +381,10 @@ step_change_ssh_port() {
     fi
 
     local current_port
-    current_port=$(grep -E '^Port\s+' /etc/ssh/sshd_config | awk '{print $2}') || current_port="22"
+    current_port=$(grep -E '^Port\s+[0-9]' /etc/ssh/sshd_config | tail -1 | awk '{print $2}') 
+    if ! [[ "$current_port" =~ ^[0-9]+$ ]]; then
+        current_port="1556"
+    fi    
     echo -e "当前 SSH 端口：${YELLOW}${current_port}${NC}"
 
     local new_port
