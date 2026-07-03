@@ -77,9 +77,164 @@ register_rollback() {
     echo "$*" >> "$ROLLBACK_FILE"
 }
 
-# ─── 步骤 1：系统更新 ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# 步骤 1：系统信息查询
+# ═══════════════════════════════════════════════════════════════════════════════
+step_sysinfo() {
+    step_header "步骤 1/10：系统信息查询 (sysinfo)"
+    # 纯展示，无需 root
+
+    log "正在采集系统信息…"
+
+    # ── 网络信息 ──────────────────────────────────────────────
+    local public_ip=""
+    local ipv4_address=""
+    local ipv6_address=""
+    local isp_info=""
+    local country=""
+    local city=""
+
+    # 并行获取网络信息
+    local ipinfo_json
+    ipinfo_json=$(curl -s --max-time 3 https://ipinfo.io 2>/dev/null) || ipinfo_json=""
+    if [[ -n "$ipinfo_json" ]]; then
+        country=$(echo "$ipinfo_json" | grep '"country"' | awk -F': "' '{print $2}' | tr -d '",')
+        city=$(echo "$ipinfo_json" | grep '"city"' | awk -F': "' '{print $2}' | tr -d '",')
+        isp_info=$(echo "$ipinfo_json" | grep '"org"' | awk -F': "' '{print $2}' | tr -d '",')
+        public_ip=$(echo "$ipinfo_json" | grep '"ip"' | awk -F': "' '{print $2}' | tr -d '",')
+    fi
+
+    # 判断是否为国内运营商 → 使用本地 IP 展示
+    if echo "$isp_info" | grep -Eiq 'CHINANET|mobile|unicom|telecom'; then
+        ipv4_address=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K[^ ]+' || \
+            hostname -I 2>/dev/null | awk '{print $1}')
+    else
+        ipv4_address="$public_ip"
+    fi
+    ipv6_address=$(curl -s --max-time 2 https://v6.ipinfo.io/ip 2>/dev/null) || ipv6_address=""
+
+    # ── 流量统计 ──────────────────────────────────────────────
+    local rx_tx
+    rx_tx=$(awk 'BEGIN{rx=0;tx=0} $1~/^(eth|ens|enp|eno)[0-9]+/{rx+=$2;tx+=$10} END{printf "%.0f %.0f", rx, tx}' /proc/net/dev)
+    local rx_bytes tx_bytes
+    rx_bytes=$(echo "$rx_tx" | awk '{print $1}')
+    tx_bytes=$(echo "$rx_tx" | awk '{print $2}')
+
+    human_readable() {
+        local bytes=$1
+        if (( bytes > 1073741824 )); then echo "$(echo "scale=2; $bytes/1073741824" | bc)G"
+        elif (( bytes > 1048576 )); then echo "$(echo "scale=2; $bytes/1048576" | bc)M"
+        elif (( bytes > 1024 )); then echo "$(echo "scale=2; $bytes/1024" | bc)K"
+        else echo "${bytes}B"; fi
+    }
+    local rx=$(human_readable "$rx_bytes")
+    local tx=$(human_readable "$tx_bytes")
+
+    # ── CPU ───────────────────────────────────────────────────
+    local cpu_info
+    cpu_info=$(lscpu 2>/dev/null | awk -F': +' '/Model name:/ {print $2; exit}') || cpu_info="unknown"
+    local cpu_cores
+    cpu_cores=$(nproc 2>/dev/null) || cpu_cores="?"
+
+    local cpu_usage="0"
+    local cpu_stat1 cpu_stat2
+    cpu_stat1=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat1=""
+    if [[ -n "$cpu_stat1" ]]; then
+        sleep 1 2>/dev/null || true
+        cpu_stat2=$(grep 'cpu ' /proc/stat 2>/dev/null) || cpu_stat2=""
+        if [[ -n "$cpu_stat2" ]]; then
+            cpu_usage=$(awk '{u=$2+$4; t=$2+$4+$5; if(NR==1){u1=u;t1=t}else printf "%.1f\n",(($2+$4-u1)*100/(t-t1))}' \
+                <(echo "$cpu_stat1") <(echo "$cpu_stat2")) || cpu_usage="0"
+        fi
+    fi
+
+    local cpu_freq
+    cpu_freq=$(grep "MHz" /proc/cpuinfo 2>/dev/null | head -1 | awk '{printf "%.1f GHz\n", $4/1000}') || cpu_freq="?"
+    local cpu_arch
+    cpu_arch=$(uname -m)
+
+    # ── 内存 ───────────────────────────────────────────────────
+    local mem_info
+    mem_info=$(free -b 2>/dev/null | awk 'NR==2{printf "%.2f/%.2fM (%.1f%%)", $3/1024/1024, $2/1024/1024, $3*100/$2}') || mem_info="?"
+    local swap_info
+    swap_info=$(free -m 2>/dev/null | awk 'NR==3{used=$3;total=$2;if(total==0){p=0}else{p=used*100/total}; printf "%dM/%dM (%d%%)", used, total, p}') || swap_info="?"
+
+    # ── 磁盘 ───────────────────────────────────────────────────
+    local disk_info
+    disk_info=$(df -h / 2>/dev/null | awk 'NR==2{printf "%s/%s (%s)", $3, $2, $5}') || disk_info="?"
+
+    # ── 系统 ───────────────────────────────────────────────────
+    local hostname
+    hostname=$(uname -n)
+    local kernel_version
+    kernel_version=$(uname -r)
+    local os_info
+    os_info=$(grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d '=' -f2 | tr -d '"') || os_info="?"
+
+    local load
+    load=$(uptime 2>/dev/null | awk '{print $(NF-2), $(NF-1), $NF}') || load="?"
+
+    local runtime
+    runtime=$(awk '{d=int($1/86400);h=int(($1%86400)/3600);m=int(($1%3600)/60);
+        if(d>0)printf "%d天 ",d;if(h>0)printf "%d时 ",h;printf "%d分"}' /proc/uptime 2>/dev/null) || runtime="?"
+
+    local congestion
+    congestion=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null) || congestion="?"
+    local queue_alg
+    queue_alg=$(sysctl -n net.core.default_qdisc 2>/dev/null) || queue_alg="?"
+
+    local dns_addrs
+    dns_addrs=$(awk '/^nameserver/{printf "%s ", $2}' /etc/resolv.conf 2>/dev/null) || dns_addrs="?"
+
+    local timezone
+    if grep -q 'Alpine' /etc/issue 2>/dev/null; then
+        timezone=$(date +"%Z %z")
+    else
+        timezone=$(timedatectl 2>/dev/null | grep "Time zone" | awk '{print $3}') || timezone=$(date +"%Z %z")
+    fi
+    local current_time
+    current_time=$(date "+%Y-%m-%d %I:%M %p")
+
+    local tcp_count udp_count
+    tcp_count=$(ss -t 2>/dev/null | wc -l) || tcp_count="?"
+    udp_count=$(ss -u 2>/dev/null | wc -l) || udp_count="?"
+
+    # ── 输出 ────────────────────────────────────────────────
+    clear
+    echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}      系统信息查询${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}主机名:         ${NC}$hostname"
+    echo -e "${CYAN}系统版本:       ${NC}$os_info"
+    echo -e "${CYAN}Linux版本:      ${NC}$kernel_version"
+    echo -e "${CYAN}CPU架构:        ${NC}$cpu_arch"
+    echo -e "${CYAN}CPU型号:        ${NC}$cpu_info"
+    echo -e "${CYAN}CPU核心数:      ${NC}$cpu_cores"
+    echo -e "${CYAN}CPU频率:        ${NC}$cpu_freq"
+    echo -e "${CYAN}CPU占用:        ${NC}${cpu_usage}%"
+    echo -e "${CYAN}系统负载:       ${NC}$load"
+    echo -e "${CYAN}TCP|UDP连接:    ${NC}${tcp_count}|${udp_count}"
+    echo -e "${CYAN}物理内存:       ${NC}$mem_info"
+    echo -e "${CYAN}虚拟内存:       ${NC}$swap_info"
+    echo -e "${CYAN}硬盘占用:       ${NC}$disk_info"
+    echo -e "${CYAN}总接收/总发送:  ${NC}$rx / $tx"
+    echo -e "${CYAN}网络算法:       ${NC}$congestion $queue_alg"
+    echo -e "${CYAN}运营商:         ${NC}${isp_info:-N/A}"
+    echo -e "${CYAN}IPv4地址:       ${NC}${ipv4_address:-N/A}"
+    echo -e "${CYAN}IPv6地址:       ${NC}${ipv6_address:-N/A}"
+    echo -e "${CYAN}DNS地址:        ${NC}$dns_addrs"
+    echo -e "${CYAN}地理位置:       ${NC}${country:-?} ${city:-?}"
+    echo -e "${CYAN}时区/系统时间:  ${NC}$timezone $current_time"
+    echo -e "${CYAN}运行时长:       ${NC}$runtime"
+    echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
+
+    step_mark_executed "sysinfo"
+    info "系统信息已显示。"
+}
+
+# ─── 步骤 2：系统更新 ────────────────────────────────────────────────────
 step_system_update() {
-    step_header "步骤 1/9：系统更新 (apt update & upgrade)"
+    step_header "步骤 2/10：系统更新 (apt update & upgrade)"
     require_root
 
     if [[ -f /etc/apt/sources.list && ! -f "${BACKUP_DIR}/sources.list.bak" ]]; then
@@ -97,9 +252,9 @@ step_system_update() {
     info "系统更新完成。"
 }
 
-# ─── 步骤 2：安装常用包 ─────────────────────────────────────────────────
+# ─── 步骤 3：安装常用包 ─────────────────────────────────────────────────
 step_install_packages() {
-    step_header "步骤 2/9：安装常用软件包"
+    step_header "步骤 3/10：安装常用软件包"
     require_root
 
     local base_pkgs=(
@@ -145,9 +300,9 @@ step_install_packages() {
     info "软件包安装步骤完成。"
 }
 
-# ─── 步骤 3：安装 BBR ───────────────────────────────────────────────────
+# ─── 步骤 4：安装 BBR ───────────────────────────────────────────────────
 step_install_bbr() {
-    step_header "步骤 3/9：安装 BBR 拥塞控制算法"
+    step_header "步骤 4/10：安装 BBR 拥塞控制算法"
     require_root
 
     local bbr_script="${BACKUP_DIR}/bbr.sh"
@@ -184,9 +339,9 @@ step_install_bbr() {
     info "BBR 安装步骤完成。"
 }
 
-# ─── 步骤 4：安装 NextTrace ─────────────────────────────────────────────
+# ─── 步骤 5：安装 NextTrace ─────────────────────────────────────────────
 step_install_nexttrace() {
-    step_header "步骤 4/9：安装 NextTrace (路由追踪工具)"
+    step_header "步骤 5/10：安装 NextTrace (路由追踪工具)"
     require_root
 
     if safe_run "安装 NextTrace" bash -c "$(curl -sL nxtrace.org/nt)"; then
@@ -218,9 +373,9 @@ step_install_nexttrace() {
     info "NextTrace 安装步骤完成。"
 }
 
-# ─── 步骤 5：修改 SSH 端口 ──────────────────────────────────────────────
+# ─── 步骤 6：修改 SSH 端口 ──────────────────────────────────────────────
 step_change_ssh_port() {
-    step_header "步骤 5/9：修改 SSH 连接端口"
+    step_header "步骤 6/10：修改 SSH 连接端口"
     require_root
 
     if [[ ! -f /etc/ssh/sshd_config ]]; then
@@ -287,9 +442,9 @@ step_change_ssh_port() {
     info "SSH 端口已更改为 $new_port。"
 }
 
-# ─── 步骤 6：SSH 密钥配置 ───────────────────────────────────────────────
+# ─── 步骤 7：SSH 密钥配置 ───────────────────────────────────────────────
 step_ssh_key_config() {
-    step_header "步骤 6/9：禁用密码登录，配置 SSH 密钥登录"
+    step_header "步骤 7/10：禁用密码登录，配置 SSH 密钥登录"
     require_root
 
     local sshd_config="/etc/ssh/sshd_config"
@@ -384,9 +539,9 @@ step_ssh_key_config() {
     info "SSH 密钥配置步骤完成。"
 }
 
-# ─── 步骤 7：禁止 IPQS ─────────────────────────────────────────────────
+# ─── 步骤 8：禁止 IPQS ─────────────────────────────────────────────────
 step_block_ipqs() {
-    step_header "步骤 7/9：禁止 IPQS"
+    step_header "步骤 8/10：禁止 IPQS"
     require_root
 
     local hosts_file="/etc/hosts"
@@ -416,9 +571,9 @@ step_block_ipqs() {
     step_mark_executed "block_ipqs"
 }
 
-# ─── 步骤 8：解除 53 端口占用 ──────────────────────────────────────────
+# ─── 步骤 9：解除 53 端口占用 ──────────────────────────────────────────
 step_release_port53() {
-    step_header "步骤 8/9：解除 53 端口占用"
+    step_header "步骤 9/10：解除 53 端口占用"
     require_root
 
     local resolved_conf="/etc/systemd/resolved.conf"
@@ -468,9 +623,9 @@ EOL
     info "53 端口配置完成。"
 }
 
-# ─── 步骤 9：系统清理 ─────────────────────────────────────────────────
+# ─── 步骤 10：系统清理 ─────────────────────────────────────────────────
 step_system_cleanup() {
-    step_header "步骤 9/9：系统清理 (Ubuntu/Debian)"
+    step_header "步骤 10/10：系统清理 (Ubuntu/Debian)"
     require_root
 
     warn "即将执行系统深度清理，包括：旧内核、孤立包、apt 缓存、日志、临时文件。"
@@ -682,15 +837,16 @@ show_menu() {
     echo -e "${CYAN}═══════════════════════════════════════════════${NC}"
     echo "请选择要执行的步骤（逗号分隔，如 1,2,3）："
     echo ""
-    echo "  1)  系统更新 (apt update & upgrade)"
-    echo "  2)  安装常用软件包"
-    echo "  3)  安装 BBR 拥塞控制"
-    echo "  4)  安装 NextTrace"
-    echo "  5)  修改 SSH 端口"
-    echo "  6)  配置 SSH 密钥（禁用密码登录）"
-    echo "  7)  禁止 IPQS 域名"
-    echo "  8)  解除 53 端口占用"
-    echo "  9)  系统深度清理"
+    echo "  1)  系统信息查询"
+    echo "  2)  系统更新 (apt update & upgrade)"
+    echo "  3)  安装常用软件包"
+    echo "  4)  安装 BBR 拥塞控制"
+    echo "  5)  安装 NextTrace"
+    echo "  6)  修改 SSH 端口"
+    echo "  7)  配置 SSH 密钥（禁用密码登录）"
+    echo "  8)  禁止 IPQS 域名"
+    echo "  9)  解除 53 端口占用"
+    echo "  10) 系统深度清理"
     echo "  a)  全部执行"
     echo "  r)  回滚所有变更"
     echo "  q)  退出"
@@ -699,7 +855,7 @@ show_menu() {
     echo -e "    ${GREEN}SSH_PORT=2222 SSH_PUBKEY=\"ssh-ed25519 AAAA...\" SSH_DISABLE_PASSWORD=yes${NC}"
     echo ""
     echo -e "  静默模式：${GREEN}sudo ./debian_setup.sh --all${NC}"
-    echo -e "  指定步骤：${GREEN}sudo ./debian_setup.sh --step 1,2,3,9${NC}"
+    echo -e "  指定步骤：${GREEN}sudo ./debian_setup.sh --step 1,3,10${NC}"
     echo ""
 }
 
@@ -722,6 +878,7 @@ main() {
 
     if [[ "$run_all" == true ]]; then
         log "非交互模式：全部步骤"
+        step_sysinfo
         step_system_update
         step_install_packages
         step_install_bbr
@@ -742,16 +899,17 @@ main() {
         for s in "${steps[@]}"; do
             s="$(echo "$s" | xargs)"
             case "$s" in
-                1) step_system_update ;;
-                2) step_install_packages ;;
-                3) step_install_bbr ;;
-                4) step_install_nexttrace ;;
-                5) step_change_ssh_port ;;
-                6) step_ssh_key_config ;;
-                7) step_block_ipqs ;;
-                8) step_release_port53 ;;
-                9) step_system_cleanup ;;
-                *) warn "跳过未知步骤：$s" ;;
+                1)  step_sysinfo ;;
+                2)  step_system_update ;;
+                3)  step_install_packages ;;
+                4)  step_install_bbr ;;
+                5)  step_install_nexttrace ;;
+                6)  step_change_ssh_port ;;
+                7)  step_ssh_key_config ;;
+                8)  step_block_ipqs ;;
+                9)  step_release_port53 ;;
+                10) step_system_cleanup ;;
+                *)  warn "跳过未知步骤：$s" ;;
             esac
         done
         step_cleanup
@@ -760,7 +918,7 @@ main() {
     fi
 
     show_menu
-    read -r -p "请选择 [1-9,a,r,q]: " choice
+    read -r -p "请选择 [1-10,a,r,q]: " choice
     echo ""
 
     case "$choice" in
@@ -772,16 +930,17 @@ main() {
             for sel in "${selections[@]}"; do
                 sel="$(echo "$sel" | xargs)"
                 case "$sel" in
-                    1) step_system_update ;;
-                    2) step_install_packages ;;
-                    3) step_install_bbr ;;
-                    4) step_install_nexttrace ;;
-                    5) step_change_ssh_port ;;
-                    6) step_ssh_key_config ;;
-                    7) step_block_ipqs ;;
-                    8) step_release_port53 ;;
-                    9) step_system_cleanup ;;
-                    *) warn "跳过未知：$sel" ;;
+                    1)  step_sysinfo ;;
+                    2)  step_system_update ;;
+                    3)  step_install_packages ;;
+                    4)  step_install_bbr ;;
+                    5)  step_install_nexttrace ;;
+                    6)  step_change_ssh_port ;;
+                    7)  step_ssh_key_config ;;
+                    8)  step_block_ipqs ;;
+                    9)  step_release_port53 ;;
+                    10) step_system_cleanup ;;
+                    *)  warn "跳过未知：$sel" ;;
                 esac
             done
             step_cleanup
