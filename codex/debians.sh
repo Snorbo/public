@@ -532,3 +532,34 @@ main() {
 }
 
 main "$@"
+    # 防火墙
+    command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active" && safe_run "UFW 放行 $new_port/tcp" ufw allow "$new_port/tcp"
+    command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running" && { safe_run "firewalld 放行" firewall-cmd --permanent --add-port="${new_port}/tcp"; safe_run "firewalld 重载" firewall-cmd --reload; }
+    if command -v iptables &>/dev/null; then
+        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
+        [[ "$dp" == "DROP" || "$dp" == "REJECT" ]] && safe_run "iptables 放行 $new_port" iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
+    fi
+    # 防火墙放行
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        # 不依赖 ufw allow 的退出码，先执行再验证规则是否存在
+        ufw allow "$new_port/tcp" 2>/dev/null || true
+        if ufw status 2>/dev/null | grep -q "$new_port"; then
+            info "UFW 已放行端口 $new_port/tcp"
+        else
+            warn "UFW 规则添加可能异常，请手动验证：ufw status"
+        fi
+    fi
+    if command -v firewall-cmd &>/dev/null && firewall-cmd --state 2>/dev/null | grep -q "running"; then
+        firewall-cmd --permanent --add-port="${new_port}/tcp" 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        firewall-cmd --list-ports 2>/dev/null | grep -q "$new_port" && \
+            info "firewalld 已放行端口 $new_port/tcp" || \
+            warn "firewalld 规则添加可能异常，请手动验证。"
+    fi
+    if command -v iptables &>/dev/null; then
+        local dp=$(iptables -L INPUT -n 2>/dev/null | head -1 | awk '{print $4}' | tr -d '()')
+        if [[ "$dp" == "DROP" || "$dp" == "REJECT" ]]; then
+            iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null || true
+            info "已添加 iptables 放行规则。"
+        fi
+    fi
