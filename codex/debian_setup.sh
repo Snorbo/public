@@ -55,11 +55,11 @@ safe_run() {
     shift
     log "执行：$desc ($*)"
     if "$@" >> "$LOG_FILE" 2>&1; then
-        log "√ 成功：$desc"
+        log "OK 成功：$desc"
         return 0
     else
         local exit_code=$?
-        warn "✗ 失败：$desc (退出码=$exit_code)"
+        warn "FAIL 失败：$desc (退出码=$exit_code)"
         return $exit_code
     fi
 }
@@ -79,7 +79,7 @@ register_rollback() {
 
 # ─── 步骤 1：系统更新 ────────────────────────────────────────────────────
 step_system_update() {
-    step_header "步骤 1/8：系统更新 (apt update & upgrade)"
+    step_header "步骤 1/9：系统更新 (apt update & upgrade)"
     require_root
 
     if [[ -f /etc/apt/sources.list && ! -f "${BACKUP_DIR}/sources.list.bak" ]]; then
@@ -99,7 +99,7 @@ step_system_update() {
 
 # ─── 步骤 2：安装常用包 ─────────────────────────────────────────────────
 step_install_packages() {
-    step_header "步骤 2/8：安装常用软件包"
+    step_header "步骤 2/9：安装常用软件包"
     require_root
 
     local base_pkgs=(
@@ -147,7 +147,7 @@ step_install_packages() {
 
 # ─── 步骤 3：安装 BBR ───────────────────────────────────────────────────
 step_install_bbr() {
-    step_header "步骤 3/8：安装 BBR 拥塞控制算法"
+    step_header "步骤 3/9：安装 BBR 拥塞控制算法"
     require_root
 
     local bbr_script="${BACKUP_DIR}/bbr.sh"
@@ -175,7 +175,7 @@ step_install_bbr() {
     local bbr_active
     bbr_active=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}') || bbr_active="unknown"
     if lsmod 2>/dev/null | grep -q tcp_bbr; then
-        info "√ BBR 模块已加载，当前拥塞控制算法：$bbr_active"
+        info "OK BBR 模块已加载，当前拥塞控制算法：$bbr_active"
     else
         warn "BBR 模块未加载，可能需要重启后生效。当前算法：$bbr_active"
     fi
@@ -186,7 +186,7 @@ step_install_bbr() {
 
 # ─── 步骤 4：安装 NextTrace ─────────────────────────────────────────────
 step_install_nexttrace() {
-    step_header "步骤 4/8：安装 NextTrace (路由追踪工具)"
+    step_header "步骤 4/9：安装 NextTrace (路由追踪工具)"
     require_root
 
     if safe_run "安装 NextTrace" bash -c "$(curl -sL nxtrace.org/nt)"; then
@@ -220,7 +220,7 @@ step_install_nexttrace() {
 
 # ─── 步骤 5：修改 SSH 端口 ──────────────────────────────────────────────
 step_change_ssh_port() {
-    step_header "步骤 5/8：修改 SSH 连接端口"
+    step_header "步骤 5/9：修改 SSH 连接端口"
     require_root
 
     if [[ ! -f /etc/ssh/sshd_config ]]; then
@@ -289,7 +289,7 @@ step_change_ssh_port() {
 
 # ─── 步骤 6：SSH 密钥配置 ───────────────────────────────────────────────
 step_ssh_key_config() {
-    step_header "步骤 6/8：禁用密码登录，配置 SSH 密钥登录"
+    step_header "步骤 6/9：禁用密码登录，配置 SSH 密钥登录"
     require_root
 
     local sshd_config="/etc/ssh/sshd_config"
@@ -386,7 +386,7 @@ step_ssh_key_config() {
 
 # ─── 步骤 7：禁止 IPQS ─────────────────────────────────────────────────
 step_block_ipqs() {
-    step_header "步骤 7/8：禁止 IPQS"
+    step_header "步骤 7/9：禁止 IPQS"
     require_root
 
     local hosts_file="/etc/hosts"
@@ -418,7 +418,7 @@ step_block_ipqs() {
 
 # ─── 步骤 8：解除 53 端口占用 ──────────────────────────────────────────
 step_release_port53() {
-    step_header "步骤 8/8：解除 53 端口占用"
+    step_header "步骤 8/9：解除 53 端口占用"
     require_root
 
     local resolved_conf="/etc/systemd/resolved.conf"
@@ -468,21 +468,188 @@ EOL
     info "53 端口配置完成。"
 }
 
-# ─── 清理 ────────────────────────────────────────────────────────────────────
-step_cleanup() {
-    step_header "清理临时文件与缓存"
+# ─── 步骤 9：系统清理 ─────────────────────────────────────────────────
+step_system_cleanup() {
+    step_header "步骤 9/9：系统清理 (Ubuntu/Debian)"
+    require_root
 
-    safe_run "apt clean" apt-get clean
-    safe_run "apt autoremove" apt-get autoremove -y
+    warn "即将执行系统深度清理，包括：旧内核、孤立包、apt 缓存、日志、临时文件。"
+    echo ""
+    echo -e "  ${YELLOW}• 移除${NC} 旧内核（保留当前 + 最新 1 个）"
+    echo -e "  ${YELLOW}• 清理${NC} 孤立依赖（apt autoremove）"
+    echo -e "  ${YELLOW}• 清理${NC} apt 缓存（clean / autoclean）"
+    echo -e "  ${YELLOW}• 清理${NC} 已删除包的残留配置文件"
+    echo -e "  ${YELLOW}• 清理${NC} 系统日志（journalctl）"
+    echo -e "  ${YELLOW}• 清理${NC} 临时文件（/tmp, /var/tmp）"
+    echo -e "  ${YELLOW}• 清理${NC} Snap 旧版本"
+    echo -e "  ${YELLOW}• 清理${NC} pip / npm 缓存"
+    echo ""
+
+    local confirm
+    read -r -p "确认执行系统清理？(yes/NO): " confirm
+    if [[ "${confirm,,}" != "yes" ]]; then
+        info "跳过系统清理。"
+        return 0
+    fi
+    echo ""
+
+    # ── 1. 清理旧内核 ──────────────────────────────────────────────
+    info "--- 1/8 清理旧内核 ---"
+    if command -v dpkg &>/dev/null; then
+        local running_kernel
+        running_kernel=$(uname -r | sed 's/-[a-z]*$//; s/-$//')
+        log "当前运行内核版本：$running_kernel"
+
+        local all_images=()
+        while IFS= read -r pkg; do
+            all_images+=("$pkg")
+        done < <(dpkg -l 'linux-image-*' 'linux-image-unsigned-*' 2>/dev/null \
+            | awk '/^ii/ {print $2}' | sort -V)
+
+        local to_purge=()
+        local keep=1
+        local count=${#all_images[@]}
+        local i=0
+        for pkg in "${all_images[@]}"; do
+            local ver
+            ver=$(echo "$pkg" | sed 's/^linux-image-//; s/^linux-image-unsigned-//')
+            if [[ "$ver" == "$running_kernel" ]]; then
+                ((keep++))
+            elif [[ $i -lt $((count - keep)) ]]; then
+                to_purge+=("$pkg")
+            fi
+            ((i++))
+        done
+
+        if [[ ${#to_purge[@]} -gt 0 ]]; then
+            log "发现 ${#to_purge[@]} 个可清理的旧内核：${to_purge[*]}"
+            local ck
+            read -r -p "移除这些旧内核包？(yes/NO): " ck
+            if [[ "${ck,,}" == "yes" ]]; then
+                safe_run "移除旧内核" apt-get purge -y "${to_purge[@]}"
+            else
+                info "跳过内核清理。"
+            fi
+        else
+            info "没有需要清理的旧内核。"
+        fi
+
+        local all_headers=()
+        while IFS= read -r pkg; do
+            all_headers+=("$pkg")
+        done < <(dpkg -l 'linux-headers-*' 2>/dev/null | awk '/^ii/ {print $2}' | sort -V | head -n -1)
+        local hdrs_to_purge=()
+        for pkg in "${all_headers[@]}"; do
+            local ver
+            ver=$(echo "$pkg" | sed 's/^linux-headers-//')
+            [[ "$ver" == "$running_kernel" || "$ver" == "generic" ]] && continue
+            hdrs_to_purge+=("$pkg")
+        done
+        if [[ ${#hdrs_to_purge[@]} -gt 0 ]]; then
+            safe_run "移除旧 headers" apt-get purge -y "${hdrs_to_purge[@]}" 2>/dev/null || true
+        fi
+    else
+        warn "dpkg 不可用，跳过内核清理。"
+    fi
+
+    # ── 2. 清理孤立包 ──────────────────────────────────────────────
+    echo ""
+    info "--- 2/8 清理孤立包 (autoremove) ---"
+    safe_run "apt autoremove -y" apt-get autoremove -y
+
+    # ── 3. 清理 apt 缓存 ──────────────────────────────────────────
+    echo ""
+    info "--- 3/8 清理 apt 缓存 ---"
     safe_run "apt autoclean" apt-get autoclean
-    safe_run "pip3 缓存清理" pip3 cache purge 2>/dev/null || true
-    safe_run "删除 BBR 临时脚本" rm -f "${BACKUP_DIR}/bbr.sh" 2>/dev/null || true
+    safe_run "apt clean" apt-get clean
+    safe_run "清理 /var/cache/apt" rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
 
-    log "清理完成。备份保留在：$BACKUP_DIR"
+    # ── 4. 清理残留配置文件 ──────────────────────────────────────
+    echo ""
+    info "--- 4/8 清理已删除包的残留配置 ---"
+    local rc_count
+    rc_count=$(dpkg -l 2>/dev/null | awk '/^rc/ {print $2}' | wc -l) || rc_count=0
+    if [[ "$rc_count" -gt 0 ]]; then
+        log "发现 $rc_count 个残留配置包"
+        dpkg -l | awk '/^rc/ {print $2}' | xargs -r dpkg --purge 2>/dev/null || true
+        info "残留配置已清理。"
+    else
+        info "没有残留配置文件。"
+    fi
+
+    # ── 5. 清理 Snap 旧版本 ──────────────────────────────────────
+    echo ""
+    info "--- 5/8 清理 Snap 旧版本 ---"
+    if command -v snap &>/dev/null; then
+        local disabled_snaps
+        disabled_snaps=$(snap list --all 2>/dev/null | awk '/disabled/ {print $1, $3}') || disabled_snaps=""
+        if [[ -n "$disabled_snaps" ]]; then
+            log "存在已禁用的 snap 版本："
+            echo "$disabled_snaps"
+            local cs
+            read -r -p "移除这些旧 snap 版本？(yes/NO): " cs
+            if [[ "${cs,,}" == "yes" ]]; then
+                snap list --all 2>/dev/null | awk '/disabled/ {print $1, $3}' | while IFS=' ' read -r name rev; do
+                    safe_run "移除 snap $name ($rev)" snap remove "$name" --revision="$rev" 2>/dev/null || true
+                done
+            fi
+        else
+            info "没有需要清理的 snap 版本。"
+        fi
+    else
+        info "Snap 未安装，跳过。"
+    fi
+
+    # ── 6. 清理 systemd 日志 ─────────────────────────────────────
+    echo ""
+    info "--- 6/8 清理系统日志 (journalctl) ---"
+    if command -v journalctl &>/dev/null; then
+        local jsize
+        jsize=$(journalctl --disk-usage 2>/dev/null | awk '{print $NF}') || jsize="?"
+        log "当前日志占用：$jsize"
+        echo "  清理模式："
+        echo "    1) 保留最近 100MB"
+        echo "    2) 保留最近 7 天"
+        echo "    3) 跳过"
+        local jc
+        read -r -p "  请选择 [1/2/3]: " jc
+        case "${jc:-3}" in
+            1) safe_run "journalctl 清理(100M)" journalctl --vacuum-size=100M 2>/dev/null || true ;;
+            2) safe_run "journalctl 清理(7d)" journalctl --vacuum-time=7d 2>/dev/null || true ;;
+            *) info "跳过日志清理。" ;;
+        esac
+    else
+        info "journalctl 不可用，跳过。"
+    fi
+
+    # ── 7. 清理临时文件 ──────────────────────────────────────────
+    echo ""
+    info "--- 7/8 清理临时文件 ---"
+    safe_run "清理 /tmp" find /tmp -type f -atime +7 -delete 2>/dev/null || true
+    safe_run "清理 /var/tmp" find /var/tmp -type f -atime +7 -delete 2>/dev/null || true
+
+    # ── 8. 清理 pip / npm 缓存 ───────────────────────────────────
+    echo ""
+    info "--- 8/8 清理 pip / npm 缓存 ---"
+    command -v pip3 &>/dev/null && safe_run "pip3 缓存" pip3 cache purge 2>/dev/null || true
+    command -v pip  &>/dev/null && safe_run "pip 缓存"  pip  cache purge 2>/dev/null || true
+    command -v npm  &>/dev/null && safe_run "npm 缓存"  npm  cache clean --force 2>/dev/null || true
+    command -v yarn &>/dev/null && safe_run "yarn 缓存" yarn cache clean 2>/dev/null || true
+
+    echo ""
+    info "系统清理执行完毕！可使用 'df -h' 查看磁盘释放情况。"
+    step_mark_executed "system_cleanup"
+}
+
+# ─── 流程内清理 ─────────────────────────────────────────────────────────────
+step_cleanup() {
+    step_header "清理本次运行临时文件"
+    safe_run "删除下载的 BBR 脚本" rm -f "${BACKUP_DIR}/bbr.sh" 2>/dev/null || true
+    safe_run "pip 缓存" pip3 cache purge 2>/dev/null || true
+    log "备份保留在：$BACKUP_DIR"
     local size
     size=$(du -sh "$BACKUP_DIR" 2>/dev/null | awk '{print $1}') || size="N/A"
     info "备份大小：$size"
-    step_mark_executed "cleanup"
 }
 
 # ─── 全局回滚 ────────────────────────────────────────────────────────────────
@@ -523,6 +690,7 @@ show_menu() {
     echo "  6)  配置 SSH 密钥（禁用密码登录）"
     echo "  7)  禁止 IPQS 域名"
     echo "  8)  解除 53 端口占用"
+    echo "  9)  系统深度清理"
     echo "  a)  全部执行"
     echo "  r)  回滚所有变更"
     echo "  q)  退出"
@@ -531,7 +699,7 @@ show_menu() {
     echo -e "    ${GREEN}SSH_PORT=2222 SSH_PUBKEY=\"ssh-ed25519 AAAA...\" SSH_DISABLE_PASSWORD=yes${NC}"
     echo ""
     echo -e "  静默模式：${GREEN}sudo ./debian_setup.sh --all${NC}"
-    echo -e "  指定步骤：${GREEN}sudo ./debian_setup.sh --step 1,2,3${NC}"
+    echo -e "  指定步骤：${GREEN}sudo ./debian_setup.sh --step 1,2,3,9${NC}"
     echo ""
 }
 
@@ -562,6 +730,7 @@ main() {
         step_ssh_key_config
         step_block_ipqs
         step_release_port53
+        step_system_cleanup
         step_cleanup
         info "全部完成！备份：$BACKUP_DIR"
         return 0
@@ -581,6 +750,7 @@ main() {
                 6) step_ssh_key_config ;;
                 7) step_block_ipqs ;;
                 8) step_release_port53 ;;
+                9) step_system_cleanup ;;
                 *) warn "跳过未知步骤：$s" ;;
             esac
         done
@@ -590,7 +760,7 @@ main() {
     fi
 
     show_menu
-    read -r -p "请选择 [1-8,a,r,q]: " choice
+    read -r -p "请选择 [1-9,a,r,q]: " choice
     echo ""
 
     case "$choice" in
@@ -610,6 +780,7 @@ main() {
                     6) step_ssh_key_config ;;
                     7) step_block_ipqs ;;
                     8) step_release_port53 ;;
+                    9) step_system_cleanup ;;
                     *) warn "跳过未知：$sel" ;;
                 esac
             done
